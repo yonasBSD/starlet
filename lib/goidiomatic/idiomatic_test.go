@@ -1,6 +1,7 @@
 package goidiomatic_test
 
 import (
+	"fmt"
 	"testing"
 
 	itn "github.com/1set/starlet/internal"
@@ -25,10 +26,65 @@ type testStruct struct {
 	Pointer interface{}
 }
 
-func TestLoadModule_GoIdiomatic(t *testing.T) {
-	starlark.Universe["test_custom_struct"] = convert.NewStruct(testStruct{})
-	starlark.Universe["test_custom_struct_pointer"] = convert.NewStruct(&testStruct{})
+// customIntRange represents a range of integers [start, end).
+type customIntRange struct {
+	starlark.Value
+	start, end int
+}
 
+// String returns the string representation of the customIntRange.
+func (r *customIntRange) String() string {
+	return fmt.Sprintf("customIntRange(%d, %d)", r.start, r.end)
+}
+
+// Type returns the type name of the customIntRange.
+func (r *customIntRange) Type() string {
+	return "customIntRange"
+}
+
+// Freeze makes the customIntRange immutable. Required by starlark.Value interface.
+func (r *customIntRange) Freeze() {}
+
+// Truth returns the truth value of the customIntRange.
+func (r *customIntRange) Truth() starlark.Bool {
+	return r.start < r.end // true if the range is not empty
+}
+
+// Hash returns the hash value of the customIntRange.
+func (r *customIntRange) Hash() (uint32, error) {
+	return uint32(r.start*31 + r.end), nil
+}
+
+// Iterate returns an iterator for the customIntRange.
+func (r *customIntRange) Iterate() starlark.Iterator {
+	return &customIntRangeIterator{ranger: r, next: r.start}
+}
+
+// customIntRangeIterator implements the Iterator interface for customIntRange.
+type customIntRangeIterator struct {
+	ranger *customIntRange
+	next   int
+}
+
+// Next moves the iterator to the next value and returns true if there was a next value.
+func (it *customIntRangeIterator) Next(p *starlark.Value) bool {
+	if it.next >= it.ranger.end {
+		return false
+	}
+	*p = starlark.MakeInt(it.next)
+	it.next++
+	return true
+}
+
+// Done does nothing but necessary to implement the Iterator interface.
+func (it *customIntRangeIterator) Done() {}
+
+// newCustomIntRange creates a new customIntRange value.
+func newCustomIntRange(start, end int) *customIntRange {
+	return &customIntRange{start: start, end: end}
+}
+
+func TestLoadModule_GoIdiomatic(t *testing.T) {
 	// test cases
 	tests := []struct {
 		name    string
@@ -634,6 +690,120 @@ func TestLoadModule_GoIdiomatic(t *testing.T) {
 				assert.true(a != e)
 			`),
 		},
+		{
+			name: `distinct with list`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        result = distinct([1, 2, 2, 3, 3, 3])
+        assert.eq([1, 2, 3], result)
+    `),
+		},
+		{
+			name: `distinct with tuple`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        result = distinct((1, 2, 2, 3, 3, 3))
+        assert.eq((1, 2, 3), result)
+    `),
+		},
+		{
+			name: `distinct with dict`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        result = distinct({'a': 1, 'b': 2, 'c': 3})
+        # Note: Dict keys order is not guaranteed
+        assert.eq(['a', 'b', 'c'], sorted(result))
+    `),
+		},
+		{
+			name: `distinct with set`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        result = distinct(set([1, 2, 3, 3, 2, 1]))
+        assert.eq(set([1, 2, 3]), result)
+    `),
+		},
+		{
+			name: `distinct with empty list`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        result = distinct([])
+        assert.eq([], result)
+    `),
+		},
+		{
+			name: "distinct with list of single element",
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        assert.eq([1], distinct([1]))
+    `),
+		},
+		{
+			name: `distinct with list of non-hashable elements`,
+			script: itn.HereDoc(`
+		load('go_idiomatic', 'distinct')
+		l = []
+		distinct([12, l])
+	`),
+			wantErr: `distinct: unhashable type: list`,
+		},
+		{
+			name: `distinct with incorrect type`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        distinct(123)
+    `),
+			wantErr: `distinct: for parameter iterable: got int, want iterable`,
+		},
+		{
+			name: `distinct with none`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        distinct(None)
+    `),
+			wantErr: `distinct: for parameter iterable: got NoneType, want iterable`,
+		},
+		{
+			name: "distinct with non-iterable arg",
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        distinct(True)
+    `),
+			wantErr: `distinct: for parameter iterable: got bool, want iterable`,
+		},
+		{
+			name: "distinct with no args",
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        distinct()
+    `),
+			wantErr: `distinct: missing argument for iterable`,
+		},
+		{
+			name: `distinct with multiple arguments`,
+			script: itn.HereDoc(`
+        load('go_idiomatic', 'distinct')
+        distinct([1, 2, 3], [4, 5, 6])
+    `),
+			wantErr: `distinct: got 2 arguments, want at most 1`,
+		},
+		{
+			name: `distinct with custom type`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'distinct')
+				r1 = make_range(1, 6)
+				r2 = distinct(r1)
+				assert.eq([1, 2, 3, 4, 5], r2)
+			`),
+		},
+		{
+			name: `distinct with invalid custom type`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'distinct')
+				distinct(test_custom_struct_pointer)
+			`),
+			wantErr: `distinct: for parameter iterable: got starlight_struct<*goidiomatic_test.testStruct>, want iterable`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -648,10 +818,15 @@ func TestLoadModule_GoIdiomatic(t *testing.T) {
 				t.Errorf("convert.ToValue Map: %v", err)
 				return
 			}
-			starlark.Universe["slice"] = s
-			starlark.Universe["map"] = m
+			globals := starlark.StringDict{
+				"slice":                      s,
+				"map":                        m,
+				"make_range":                 convert.MakeStarFn("make_range", newCustomIntRange),
+				"test_custom_struct":         convert.NewStruct(testStruct{}),
+				"test_custom_struct_pointer": convert.NewStruct(&testStruct{}),
+			}
 
-			res, err := itn.ExecModuleWithErrorTest(t, goidiomatic.ModuleName, goidiomatic.LoadModule, tt.script, tt.wantErr, nil)
+			res, err := itn.ExecModuleWithErrorTest(t, goidiomatic.ModuleName, goidiomatic.LoadModule, tt.script, tt.wantErr, globals)
 			if (err != nil) != (tt.wantErr != "") {
 				t.Errorf("go_idiomatic(%q) expects error = '%v', actual error = '%v', result = %v", tt.name, tt.wantErr, err, res)
 				return

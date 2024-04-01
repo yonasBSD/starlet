@@ -38,6 +38,7 @@ func LoadModule() (starlark.StringDict, error) {
 		"module":      starlark.NewBuiltin("module", starlarkstruct.MakeModule),
 		"struct":      starlark.NewBuiltin("struct", starlarkstruct.Make),
 		"make_struct": starlark.NewBuiltin("make_struct", makeCustomStruct),
+		"distinct":    starlark.NewBuiltin("distinct", distinct),
 	}, nil
 }
 
@@ -67,6 +68,53 @@ func isNil(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kw
 		return starlark.Bool(dataconv.IsInterfaceNil(t) || dataconv.IsInterfaceNil(t.Value().Interface())), nil
 	default:
 		return none, fmt.Errorf("%s: unsupported type: %T", b.Name(), t)
+	}
+}
+
+// distinct returns a iterable with distinct elements from the given iterable, i.e. without duplicates.
+// for list and custom types, it returns a new list with distinct elements.
+// for tuple, it returns a new tuple with distinct elements.
+// for dict, it calls the keys() method to returns the keys in a list.
+// for set, it just returns the original set.
+func distinct(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var itr starlark.Iterable
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "iterable", &itr); err != nil {
+		return none, err
+	}
+	// check if the iterable is a set or a map, just return the keys quickly
+	switch v := itr.(type) {
+	case *starlark.Dict: // get the keys of the dict
+		return starlark.NewList(v.Keys()), nil
+	case *starlark.Set: // get the original set
+		return v, nil
+	}
+	// get the list elements for list or tuple
+	var (
+		lsv  []starlark.Value
+		hm   = make(map[uint32]struct{})
+		x    starlark.Value
+		iter = itr.Iterate()
+	)
+	// loop through the list/tuple and add distinct elements
+	for iter.Next(&x) {
+		h, e := x.Hash()
+		if e != nil {
+			return none, fmt.Errorf("%s: %w", b.Name(), e)
+		}
+		if _, ok := hm[h]; !ok {
+			hm[h] = struct{}{}
+			lsv = append(lsv, x)
+		}
+	}
+	// return the new iterable as per the input type
+	switch itr.(type) {
+	case *starlark.List:
+		return starlark.NewList(lsv), nil
+	case starlark.Tuple:
+		return starlark.Tuple(lsv), nil
+	default:
+		// fallback to list for other types, like the custom ones
+		return starlark.NewList(lsv), nil
 	}
 }
 
