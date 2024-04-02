@@ -3,6 +3,7 @@ package file_test
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -11,11 +12,13 @@ import (
 )
 
 func TestLoadModule_File(t *testing.T) {
+	isOnWindows := runtime.GOOS == "windows"
 	tests := []struct {
 		name        string
 		script      string
 		wantErr     string
 		fileContent string
+		skipWindows bool
 	}{
 		{
 			name: `trim bom`,
@@ -437,6 +440,154 @@ func TestLoadModule_File(t *testing.T) {
 			`),
 			wantErr: `open not-such-file6.txt:`,
 		},
+		{
+			name: `stat: no arg`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				s = stat()
+			`),
+			wantErr: `file.stat: missing argument for name`,
+		},
+		{
+			name: `stat: not exist`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				s = stat('not-such-file7.txt')
+			`),
+			wantErr:     `file.stat: lstat not-such-file7.txt`,
+			skipWindows: true,
+		},
+		{
+			name: `stat: empty path`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				s = stat('')
+			`),
+			wantErr:     `file.stat: lstat :`,
+			skipWindows: true,
+		},
+		{
+			name: `stat: file`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata/aloha.txt'
+				s = stat(fp)
+				assert.eq(s.name, 'aloha.txt')
+				assert.eq(s.size, 6)
+				assert.eq(s.type, 'file')
+				assert.eq(s.ext, '.txt')
+				assert.true("testdata" in s.path)
+				assert.true("aloha.txt" in s.path)
+				assert.true(s.modified.unix > 0)
+				assert.eq(s.get_md5(), '6a12867bd5e0810f2dae51da4a51f001')
+				assert.eq(s.get_sha1(), '71a45eadccd2f29bbf60f46b13e019ae62c8b0bd')
+				assert.eq(s.get_sha256(), 'eb69c86a84164b23808dcda13fdfbe664760701cf605df28272d4efd2ed18ab4')
+				assert.eq(s.get_sha512(), '9946cf3ba83eff33d9798fe933785b8a0f20aa179ca1d18418fd401d955a1270edf9542eb7b10833bbfe1de84b31dde6924e4e01f0e335174c45fede9f9e80ef')
+			`),
+		},
+		{
+			name: `stat: follow file`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata/aloha.txt'
+				s = stat(fp, True)
+				assert.eq(s.name, 'aloha.txt')
+				assert.eq(s.size, 6)
+				assert.eq(s.type, 'file')
+				assert.eq(s.ext, '.txt')
+				assert.true("testdata" in s.path)
+				assert.true("aloha.txt" in s.path)
+				assert.true(s.modified.unix > 0)
+				assert.eq(s.get_md5(), '6a12867bd5e0810f2dae51da4a51f001')
+				assert.eq(s.get_sha1(), '71a45eadccd2f29bbf60f46b13e019ae62c8b0bd')
+				assert.eq(s.get_sha256(), 'eb69c86a84164b23808dcda13fdfbe664760701cf605df28272d4efd2ed18ab4')
+				assert.eq(s.get_sha512(), '9946cf3ba83eff33d9798fe933785b8a0f20aa179ca1d18418fd401d955a1270edf9542eb7b10833bbfe1de84b31dde6924e4e01f0e335174c45fede9f9e80ef')
+			`),
+		},
+		{
+			name: `stat: empty file`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata/empty.txt'
+				s = stat(fp)
+				assert.eq(s.name, 'empty.txt')
+				assert.eq(s.size, 0)
+				assert.eq(s.type, 'file')
+				assert.eq(s.ext, '.txt')
+			`),
+		},
+		{
+			name: `stat: file no ext`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata/noext'
+				s = stat(fp)
+				assert.eq(s.type, 'file')
+				assert.eq(s.name, 'noext')
+				assert.eq(s.ext, '')
+			`),
+		},
+		//{
+		//	name: `stat: file dot ext`,
+		//	script: itn.HereDoc(`
+		//		load('file', 'stat')
+		//		fp = 'testdata/dotext.'
+		//		s = stat(fp)
+		//		assert.eq(s.type, 'file')
+		//		assert.eq(s.name, 'dotext.')
+		//		assert.eq(s.ext, '.')
+		//	`),
+		//},
+		{
+			name: `stat: dir`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata'
+				s = stat(fp)
+				assert.eq(s.name, 'testdata')
+				assert.eq(s.type, 'dir')
+				assert.eq(s.ext, '')
+				assert.true(s.path.endswith(fp))
+				assert.true(s.modified.unix > 0)
+			`),
+		},
+		{
+			name: `stat: follow dir`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata'
+				s = stat(fp, follow=True)
+				assert.eq(s.name, 'testdata')
+				assert.eq(s.type, 'dir')
+				assert.eq(s.ext, '')
+				assert.true(s.path.endswith(fp))
+				assert.true(s.modified.unix > 0)
+			`),
+		},
+		{
+			name: `stat: device`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = '/dev/null'
+				s = stat(fp)
+				assert.eq(s.name, 'null')
+				assert.eq(s.path, fp)
+				assert.eq(s.ext, '')
+				assert.eq(s.type, 'char_device')
+			`),
+			skipWindows: true,
+		},
+		{
+			name: `stat: dir get hash`,
+			script: itn.HereDoc(`
+				load('file', 'stat')
+				fp = 'testdata'
+				s = stat(fp)
+				s.get_md5()
+			`),
+			wantErr:     `testdata: is a directory`,
+			skipWindows: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -453,6 +604,10 @@ func TestLoadModule_File(t *testing.T) {
 				tt.script = fmt.Sprintf(tt.script, tp)
 			}
 			// execute test
+			if isOnWindows && tt.skipWindows {
+				t.Skipf("Skip test on Windows")
+				return
+			}
 			res, err := itn.ExecModuleWithErrorTest(t, lf.ModuleName, lf.LoadModule, tt.script, tt.wantErr, nil)
 			if (err != nil) != (tt.wantErr != "") {
 				t.Errorf("file(%q) expects error = '%v', actual error = '%v', result = %v", tt.name, tt.wantErr, err, res)
