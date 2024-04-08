@@ -83,12 +83,12 @@ func getFileStat(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	}
 	stat, err := statFn(inputPath)
 	if err != nil {
-		return none, fmt.Errorf("%s: %v", b.Name(), err)
+		return none, fmt.Errorf("%s: %w", b.Name(), err)
 	}
 	// get file abs path
 	absPath, err := filepath.Abs(inputPath)
 	if err != nil {
-		return none, fmt.Errorf("%s: %v", b.Name(), err)
+		return none, fmt.Errorf("%s: %w", b.Name(), err)
 	}
 	// return file stat
 	fs := &FileStat{stat, absPath}
@@ -100,14 +100,14 @@ func genFileHashFunc(fp string, algo func() hash.Hash) func(*starlark.Thread, *s
 		// open file
 		file, err := os.Open(fp)
 		if err != nil {
-			return none, fmt.Errorf("%s: %v", fn.Name(), err)
+			return none, fmt.Errorf("%s: %w", fn.Name(), err)
 		}
 		defer file.Close()
 
 		// get hash
 		h := algo()
 		if _, err := io.Copy(h, file); err != nil {
-			return none, fmt.Errorf("%s: %v", fn.Name(), err)
+			return none, fmt.Errorf("%s: %w", fn.Name(), err)
 		}
 		return starlark.String(hex.EncodeToString(h.Sum(nil))), nil
 	}
