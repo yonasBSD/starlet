@@ -11,7 +11,22 @@ import (
 	"go.starlark.net/syntax"
 )
 
-// SharedDict is a dictionary that can be shared among multiple Starlark threads.
+// SharedDict represents a thread-safe dictionary that can be concurrently accessed and modified by multiple Starlark threads.
+// This synchronization is crucial in concurrent environments where Starlark scripts are executed in parallel, ensuring data consistency and preventing race conditions.
+//
+// The internal state of a SharedDict includes a standard Starlark dictionary (`*starlark.Dict`), a mutex (`sync.RWMutex`) to manage concurrent access,
+// and a boolean flag indicating whether the dictionary is frozen. A frozen SharedDict cannot be modified, aligning with Starlark's immutability rules for frozen values.
+// Additionally, SharedDict supports custom naming through the 'name' field, allowing for more descriptive representations and debugging.
+//
+// Constructors:
+// - NewSharedDict: Initializes a new SharedDict with default settings.
+// - NewNamedSharedDict: Creates a new SharedDict with a specified name, providing clarity when multiple SharedDicts are used.
+// - NewSharedDictFromDict: Generates a new SharedDict based on an existing Starlark dictionary. It attempts to clone the original dictionary to preserve immutability.
+//
+// Methods like Len, CloneDict, ToJSON, LoadJSON provide additional functionalities like determining the dictionary's length, cloning, JSON serialization, and deserialization, enhancing the utility of SharedDict in various use cases.
+//
+// SharedDict integrates tightly with Starlark's concurrency model, offering a robust solution for managing shared state across threads.
+// By encapsulating thread safety mechanisms and providing a familiar dictionary interface, SharedDict facilitates the development of concurrent Starlark scripts with shared mutable state.
 type SharedDict struct {
 	sync.RWMutex
 	dict   *starlark.Dict
@@ -253,13 +268,98 @@ func (s *SharedDict) Len() int {
 	return 0
 }
 
-// CloneDict returns a clone of the underlying dictionary
-// Notice that this method is not a must for the starlark.Value interface, but it's useful for Go code.
+// CloneDict creates a shallow copy of the underlying Starlark dictionary contained within the SharedDict instance.
+// This method is particularly valuable when a snapshot of the current state of the dictionary is needed without affecting the original dictionary.
+// It ensures that modifications to the returned dictionary do not impact the source SharedDict, providing a mechanism for safe, concurrent read operations.
 func (s *SharedDict) CloneDict() (*starlark.Dict, error) {
 	s.RLock()
 	defer s.RUnlock()
 
 	return cloneDict(s.dict)
+}
+
+// ToJSON serializes the SharedDict instance into a JSON string representation.
+// This method facilitates the conversion of complex, nested data structures stored within a SharedDict into a universally recognizable format (JSON),
+// making it easier to export or log the data contained within the SharedDict.
+//
+// It is important to note that the serialization process adheres to JSON's limitations, such as not supporting circular references. If the SharedDict contains
+// circular references or types not supported by JSON (e.g., functions), `ToJSON` will return an error.
+func (s *SharedDict) ToJSON() (string, error) {
+	// prepare thread
+	thread := &starlark.Thread{Name: "inline", Print: noopPrintFunc}
+
+	// get the JSON encoder
+	jm, ok := stdjson.Module.Members["encode"]
+	if !ok {
+		return emptyStr, fmt.Errorf("json.encode not found")
+	}
+	enc := jm.(*starlark.Builtin)
+
+	// call the builtin
+	val, err := enc.CallInternal(thread, starlark.Tuple{s.dict}, nil)
+	if err != nil {
+		return emptyStr, err
+	}
+
+	// convert to string
+	ss, ok := val.(starlark.String)
+	if !ok {
+		return "", fmt.Errorf("got %s as result, want string", val.Type())
+	}
+	return string(ss), nil
+}
+
+// LoadJSON updates the SharedDict instance with key-value pairs decoded from a given JSON string.
+// This method provides a convenient way to populate or update the contents of a SharedDict with data received in JSON format,
+// such as from a configuration file, a network request, or any external data source.
+//
+// The method attempts to merge the contents of the JSON string into the existing SharedDict. In cases where keys overlap,
+// the values specified in the JSON string will overwrite those in the SharedDict.
+//
+// It's important to ensure that the JSON string represents a dictionary/object structure; otherwise, `LoadJSON` will return an error.
+// Also, the SharedDict must not be frozen; attempting to modify a frozen SharedDict will result in an error.
+func (s *SharedDict) LoadJSON(jsonStr string) error {
+	// check the dict itself
+	if s == nil {
+		return fmt.Errorf("nil shared dict")
+	}
+
+	// prepare thread
+	thread := &starlark.Thread{Name: "inline", Print: noopPrintFunc}
+
+	// get the JSON decoder
+	jm, ok := stdjson.Module.Members["decode"]
+	if !ok {
+		return fmt.Errorf("json.decode not found")
+	}
+	dec := jm.(*starlark.Builtin)
+
+	// call the builtin
+	val, err := dec.CallInternal(thread, starlark.Tuple{starlark.String(jsonStr)}, nil)
+	if err != nil {
+		return err
+	}
+
+	// convert to dict
+	nd, ok := val.(*starlark.Dict)
+	if !ok {
+		return fmt.Errorf("got %s result, want dict", val.Type())
+	}
+
+	// lock the shared dict
+	s.Lock()
+	defer s.Unlock()
+
+	// merge the new dict into the shared dict
+	for _, r := range nd.Items() {
+		if len(r) < 2 {
+			continue
+		}
+		if e := s.dict.SetKey(r[0], r[1]); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 var (
