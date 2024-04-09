@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 
 	"github.com/1set/starlet/dataconv"
 	itn "github.com/1set/starlet/internal"
@@ -17,50 +18,134 @@ var (
 	structNameResponse = starlark.String("Response")
 )
 
-// ConvertServerRequest converts a http.Request to a Starlark struct for use in Starlark scripts on the server side.
-func ConvertServerRequest(r *http.Request) *starlarkstruct.Struct {
-	// for nil request, return nil
+// ExportedServerRequest encapsulates HTTP request data in a format accessible to both Go code and Starlark scripts.
+// This struct bridges Go's HTTP handling features with Starlark's dynamic scripting capabilities, enabling seamless
+// interaction and manipulation of request properties in Go, while providing a structured, read-only view of the request
+// data to Starlark scripts.
+//
+// Key Features:
+//   - Full access to HTTP request properties (method, URL, headers, body) for reading and modification in Go.
+//   - Structured, read-only representation of request data for Starlark scripts, enhancing scripting flexibility.
+//   - JSON body support simplifies working with JSON payloads directly in scripts.
+//
+// Usage Pattern:
+//   1. Convert an incoming http.Request to ExportedServerRequest with NewExportedServerRequest for access in Go.
+//   2. Modify the ExportedServerRequest properties as needed in Go before handing off to Starlark.
+//   3. Use the Struct method to convert the ExportedServerRequest to a Starlark struct, passing it to Starlark scripts
+//      for read-only access. This step allows scripts to inspect the request's properties.
+//   4. Since the Starlark struct is read-only, modifications to the request must be performed in Go, either before
+//      or after script execution.
+//
+// This design prioritizes ease of use, security, and performance, facilitating dynamic and complex request processing
+// logic through Go and Starlark. It ensures the integrity of the HTTP request handling by preventing unauthorized
+// modifications and protecting against potential security threats. Developers are encouraged to validate all modifications
+// and interactions with the request data to maintain the server's security posture.
+type ExportedServerRequest struct {
+	Method   string         // The HTTP method (e.g., GET, POST, PUT, DELETE)
+	URL      *url.URL       // The request URL
+	Proto    string         // The protocol used for the request (e.g., HTTP/1.1)
+	Host     string         // The host specified in the request
+	Remote   string         // The remote address of the client
+	Header   http.Header    // The HTTP headers included in the request
+	Encoding []string       // The transfer encodings specified in the request
+	Body     []byte         // The request body data
+	JSONData starlark.Value // The request body data as Starlark value
+}
+
+// NewExportedServerRequest creates a new ExportedServerRequest from an http.Request.
+func NewExportedServerRequest(r *http.Request) (*ExportedServerRequest, error) {
 	if r == nil {
-		return nil
+		return nil, errors.New("nil request")
 	}
 
+	// attempt to read the request body
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// reset the request body to allow multiple reads
+	_ = r.Body.Close()
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+
+	// marshal body as json
+	var sv starlark.Value = starlark.None
+	if len(body) > 0 {
+		if sv, err = dataconv.UnmarshalStarlarkJSON(body); err != nil {
+			sv = starlark.None
+		}
+	}
+
+	// create the exported request
+	return &ExportedServerRequest{
+		Method:   r.Method,
+		URL:      r.URL,
+		Proto:    r.Proto,
+		Host:     r.Host,
+		Remote:   r.RemoteAddr,
+		Header:   r.Header,
+		Encoding: r.TransferEncoding,
+		Body:     body,
+		JSONData: sv,
+	}, nil
+}
+
+// Struct returns a Starlark struct representation of the ExportedServerRequest, which exposes the following fields to Starlark scripts:
+//   - method: The HTTP method (e.g., GET, POST, PUT, DELETE)
+//   - url: The request URL
+//   - proto: The protocol used for the request (e.g., HTTP/1.1)
+//   - host: The host specified in the request
+//   - remote: The remote address of the client
+//   - header: The HTTP headers included in the request
+//   - query: The query parameters included in the request URL
+//   - encoding: The transfer encodings specified in the request
+//   - body: The request body data
+//   - json: The request body data as Starlark value, if it is valid JSON or None otherwise
+func (r *ExportedServerRequest) Struct() *starlarkstruct.Struct {
 	// prepare struct members
 	sd := starlark.StringDict{
-		"body": starlark.None,
-		"json": starlark.None,
+		"method":   starlark.String(r.Method),
+		"url":      starlark.String(r.URL.String()),
+		"proto":    starlark.String(r.Proto),
+		"host":     starlark.String(r.Host),
+		"remote":   starlark.String(r.Remote),
+		"header":   mapStrs2Dict(r.Header),
+		"query":    mapStrs2Dict(r.URL.Query()),
+		"encoding": sliceStr2List(r.Encoding),
+		"body":     starlark.String(r.Body),
+		"json":     r.JSONData,
 	}
-
-	// set headers, query, and other fields
-	sd["host"] = starlark.String(r.Host)
-	sd["remote"] = starlark.String(r.RemoteAddr)
-	sd["url"] = starlark.String(r.URL.String())
-	sd["proto"] = starlark.String(r.Proto)
-	sd["method"] = starlark.String(r.Method)
-	sd["header"] = mapStrs2Dict(r.Header)
-	sd["query"] = mapStrs2Dict(r.URL.Query())
-	sd["encoding"] = sliceStr2List(r.TransferEncoding)
-
-	// for body content
-	var (
-		bs  []byte
-		err error
-	)
-	if r.Body != nil {
-		if bs, err = ioutil.ReadAll(r.Body); err == nil {
-			sd["body"] = starlark.String(bs)
-			// reset reader to allow multiple calls outside
-			_ = r.Body.Close()
-			r.Body = ioutil.NopCloser(bytes.NewBuffer(bs))
-		}
-	}
-	if bs != nil {
-		if sv, err := dataconv.UnmarshalStarlarkJSON(bs); err == nil {
-			sd["json"] = sv
-		}
-	}
-
 	// create struct
 	return starlarkstruct.FromStringDict(structNameRequest, sd)
+}
+
+// Write writes the request data back to a provided http.Request instance.
+func (r *ExportedServerRequest) Write(req *http.Request) (err error) {
+	if req == nil {
+		return errors.New("nil request")
+	}
+
+	// set request method, URL, and protocol
+	req.Method = r.Method
+	req.URL = r.URL
+	req.Proto = r.Proto
+	req.Host = r.Host
+	req.RemoteAddr = r.Remote
+	req.Header = r.Header
+	req.TransferEncoding = r.Encoding
+	// set request body
+	req.Body = ioutil.NopCloser(bytes.NewReader(r.Body))
+
+	return err
+}
+
+// ConvertServerRequest converts a http.Request to a Starlark struct for use in Starlark scripts on the server side.
+func ConvertServerRequest(r *http.Request) *starlarkstruct.Struct {
+	sr, err := NewExportedServerRequest(r)
+	if err != nil || sr == nil {
+		return nil
+	}
+	return sr.Struct()
 }
 
 // NewServerResponse creates a new ServerResponse.
@@ -68,7 +153,33 @@ func NewServerResponse() *ServerResponse {
 	return &ServerResponse{}
 }
 
-// ServerResponse is a Starlark struct to save info in Starlark scripts to modify http.ResponseWriter outside on the server side.
+// ServerResponse is a struct that enables HTTP response manipulation within Starlark scripts,
+// facilitating dynamic preparation of HTTP responses in Go-based web servers executing such scripts.
+//
+// Key Features:
+//   - Setting HTTP status codes.
+//   - Adding and managing HTTP headers.
+//   - Specifying the content type of the response.
+//   - Setting the response body with support for various data types (e.g., binary, text, HTML, JSON).
+//
+// Usage Pattern:
+//   1. Create a ServerResponse instance using NewServerResponse().
+//   2. Utilize the Struct() method to obtain a Starlark struct that exposes ServerResponse functionalities to Starlark scripts.
+//   3. In the Starlark script, utilize provided methods (e.g., set_status, add_header, set_content_type) to prepare the response.
+//   4. Back in Go, the ServerResponse instance can directly write its content to an http.ResponseWriter using its Write() method.
+//      Alternatively, you can call the Export() method to convert the ServerResponse into an ExportedServerResponse for modification,
+//      which is then capable of being written to an http.ResponseWriter using its Write() method.
+//
+// Internally, ServerResponse uses a private contentDataType enum to manage the intended type of the response data,
+// allowing for automatic adjustment of the Content-Type header based on the set data type by the Starlark script.
+//
+// The ExportedServerResponse struct simplifies ServerResponse for interoperability with Go's standard http package,
+// comprising an HTTP status code, headers, and data for the HTTP response. Its Write() method allows for the prepared
+// response to be efficiently written to an http.ResponseWriter, ensuring correct header setting and response body data writing.
+//
+// Note: Direct manipulation of ServerResponse and its methods by Starlark scripts necessitates validation of script inputs
+// to mitigate potential security issues like header injection attacks. This design allows scripts to dynamically prepare
+// HTTP responses while maintaining a secure and controlled server environment.
 type ServerResponse struct {
 	statusCode  int
 	headers     map[string][]string
@@ -77,7 +188,15 @@ type ServerResponse struct {
 	data        []byte
 }
 
-// Struct returns a Starlark struct for use in Starlark scripts.
+// Struct returns a Starlark struct representation of the ServerResponse, which exposes the following methods to Starlark scripts:
+//   - set_status(code): Sets the HTTP status code for the response.
+//   - set_code(code): An alias for set_status.
+//   - add_header(key, value): Adds a header with the given key and value to the response.
+//   - set_content_type(contentType): Sets the Content-Type header for the response.
+//   - set_data(data): Sets the response data as binary data.
+//   - set_json(data): Sets the response data as JSON, marshaling the given Starlark value to JSON.
+//   - set_text(data): Sets the response data as plain text.
+//   - set_html(data): Sets the response data as HTML.
 func (r *ServerResponse) Struct() *starlarkstruct.Struct {
 	// prepare struct members
 	sd := starlark.StringDict{
