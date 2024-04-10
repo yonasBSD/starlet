@@ -49,6 +49,8 @@ build_windows:
 
 run: build
 	./$(BINARY)
+test: build
+	./$(BINARY) arg.star Aloha
 
 install: build
 ifndef GOBIN
