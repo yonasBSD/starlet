@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,35 @@ func TestNewExportedServerRequest_NilRequest(t *testing.T) {
 	_, err := NewExportedServerRequest(nil)
 	if err == nil {
 		t.Error("Expected an error when creating ExportedServerRequest with nil http.Request, got nil")
+	}
+}
+
+func TestNewExportedServerRequest_NilRequestBody(t *testing.T) {
+	req := getNilGETRequest()
+	if r, err := NewExportedServerRequest(req); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	} else if r.Body != nil {
+		t.Error("Expected body to be nil")
+	} else if r.JSONData != starlark.None {
+		t.Error("Expected JSONData to be None")
+	}
+}
+
+func TestNewExportedServerRequest_EmptyRequestBody(t *testing.T) {
+	req := getMockGETRequest("")
+	if r, err := NewExportedServerRequest(req); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	} else if r.Body == nil {
+		t.Error("Expected body to be not nil")
+	} else if r.JSONData != starlark.None {
+		t.Error("Expected JSONData to be None")
+	}
+}
+
+func TestNewExportedServerRequest_RequestBodyFails(t *testing.T) {
+	req, _ := http.NewRequest("GET", "https://localhost", &errorReader{})
+	if _, err := NewExportedServerRequest(req); err == nil {
+		t.Error("Expected an error when reading request body, got nil")
 	}
 }
 
@@ -176,7 +206,7 @@ func TestServerResponse_Nil(t *testing.T) {
 	}
 }
 
-func TestServerResponse(t *testing.T) {
+func TestServerResponse_Full(t *testing.T) {
 	bd := `{"name":"John","age":30}`
 	testCases := []struct {
 		name             string
@@ -189,6 +219,15 @@ func TestServerResponse(t *testing.T) {
 			name:           "no ops",
 			script:         itn.HereDoc(``),
 			request:        getMockRequest(bd),
+			expectedStatus: http.StatusOK,
+			expectedResponse: itn.HereDoc(`
+				Content-Type: application/octet-stream
+			`),
+		},
+		{
+			name:           "get",
+			script:         itn.HereDoc(`response.set_data("Hello")`),
+			request:        getNilGETRequest(),
 			expectedStatus: http.StatusOK,
 			expectedResponse: itn.HereDoc(`
 				Content-Type: application/octet-stream
@@ -472,6 +511,24 @@ func getMockRequest(s string) *http.Request {
 	return req
 }
 
+func getNilGETRequest() *http.Request {
+	req, _ := http.NewRequest("GET", "/?param1=value1&param2=value2&param2=value_two", nil)
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("X-Custom-Header", "Custom Value 1")
+	req.Header.Add("X-Custom-Header", "Custom Value 2")
+	req.RemoteAddr = "127.0.0.1:12346"
+	return req
+}
+
+func getMockGETRequest(s string) *http.Request {
+	req, _ := http.NewRequest("GET", "/?param1=value1&param2=value2&param2=value_two", bytes.NewBuffer([]byte(s)))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("X-Custom-Header", "Custom Value 1")
+	req.Header.Add("X-Custom-Header", "Custom Value 2")
+	req.RemoteAddr = "127.0.0.1:12347"
+	return req
+}
+
 func getScriptHandler(script string) func(w http.ResponseWriter, r *http.Request) {
 	// create a new http handler
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -523,4 +580,13 @@ func getScriptHandler(script string) func(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
+}
+
+// errorReader is an io.Reader that always returns an error.
+type errorReader struct{}
+
+// Read satisfies the io.Reader interface and simulates an error.
+func (e *errorReader) Read(p []byte) (n int, err error) {
+	// You can return any error of your choice here.
+	return 0, errors.New("simulated read error")
 }
