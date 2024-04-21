@@ -452,6 +452,124 @@ func TestLoadModule_HTTP(t *testing.T) {
 			`),
 			wantErr: `invalid character 'P' looking for beginning of value`,
 		},
+		{
+			name: `POST Form`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_encoding="multipart/form-data", form_body={ "a" : "better", "c" : "dance", 123: "abc"})
+				assert.eq(res.status_code, 200)
+				assert.true('POST /' in res.body())
+				assert.true('multipart/form-data; boundary=' in res.body())
+			`),
+		},
+		{
+			name: `POST postForm`,
+			script: itn.HereDoc(`
+				load('http', post='postForm')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={ "a" : "better", "c" : "dance"})
+				assert.eq(res.status_code, 200)
+				assert.true('POST /' in res.body())
+				assert.true('application/x-www-form-urlencoded' in res.body())
+			`),
+		},
+		{
+			name: `POST Form File`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={
+					"a" : ["better.txt", "123456"],
+					"b" : ["dance.md", '"abcdef(@!'],
+				})
+				assert.eq(res.status_code, 200)
+				rb = res.body()
+				assert.true('POST /' in rb)
+				assert.true('Content-Type: multipart/form-data; boundary=' in rb)
+				assert.true('filename="better.txt"' in rb)
+				assert.true('filename="dance.md"' in rb)
+				assert.true('Content-Type: application/octet-stream' in rb)
+				assert.true('123456' in rb)
+				assert.true('"abcdef(@!' in rb)
+			`),
+		},
+		{
+			name: `POST Form Key Type`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={123: "abc"})
+				assert.eq(res.status_code, 200)
+				rb = res.body()
+				assert.true('POST /' in rb)
+				assert.true('Content-Type: application/x-www-form-urlencoded' in rb)
+				assert.true('123=abc' in rb)
+			`),
+		},
+		{
+			name: `POST Invalid JSON`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, json_body={
+					"fn" : post,
+				})
+			`),
+			wantErr: `unmarshaling starlark value: unrecognized starlark type: *starlark.Builtin`,
+		},
+		{
+			name: `POST Invalid Form Value`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={
+					"a" : 100,
+				})
+			`),
+			wantErr: `expected param value for key "a" in form_body to be a string or tuple. got: "int"`,
+		},
+		{
+			name: `POST Invalid Form File`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={
+					"a" : ["better.txt"],
+				})
+			`),
+			wantErr: `expected 2 values for key "a" in form_body to be a tuple of (filename, content)`,
+		},
+		{
+			name: `POST Invalid Form File 1`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={
+					"a" : [123, "abc"],
+				})
+			`),
+			wantErr: `expected 1st value for key "a" in form_body to be a string. got: "int"`,
+		},
+		{
+			name: `POST Invalid Form File 2`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={
+					"a" : ["abc", [123]],
+				})
+			`),
+			wantErr: `expected 2nd value for key "a" in form_body to be a string. got: "list"`,
+		},
+		{
+			name: `POST Force Form`,
+			script: itn.HereDoc(`
+				load('http', post='postForm')
+				res = post(test_server_url, headers={"ABC": "123"}, form_body={
+					"a" : ["better.txt", "123456"],
+					"b" : ["dance.md", '"abcdef(@!'],
+				})
+				assert.eq(res.status_code, 200)
+				rb = res.body()
+				assert.true('POST /' in rb)
+				assert.true('Content-Type: application/x-www-form-urlencoded' in rb)
+				assert.true('filename="better.txt"' not in rb)
+				assert.true('filename="dance.md"' not in rb)
+				assert.true('Content-Type: application/octet-stream' not in rb)
+			`),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

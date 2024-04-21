@@ -144,6 +144,12 @@ func (m *Module) reqMethod(method string) func(thread *starlark.Thread, b *starl
 			return nil, err
 		}
 
+		// hack for postForm
+		if method == "postForm" {
+			method = "post"
+			formEncoding = formEncodingURL
+		}
+
 		req, err := http.NewRequest(strings.ToUpper(method), rawURL, nil)
 		if err != nil {
 			return nil, err
@@ -305,7 +311,7 @@ func setHeaders(req *http.Request, headers *starlark.Dict) error {
 	return nil
 }
 
-func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, formEncoding starlark.String, jsondata starlark.Value) error {
+func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, formEncoding starlark.String, jsonData starlark.Value) error {
 	if !dataconv.IsEmptyString(body) {
 		uq, err := strconv.Unquote(body.String())
 		if err != nil {
@@ -319,9 +325,9 @@ func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, f
 		return nil
 	}
 
-	if jsondata != nil && jsondata.String() != "" {
+	if jsonData != nil && jsonData.String() != "" {
 		req.Header.Set("Content-Type", "application/json")
-		data, err := dataconv.MarshalStarlarkJSON(jsondata, 0)
+		data, err := dataconv.MarshalStarlarkJSON(jsonData, 0)
 		if err != nil {
 			return err
 		}
@@ -330,34 +336,62 @@ func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, f
 	}
 
 	if formData != nil && formData.Len() > 0 {
-		form := url.Values{}
-		for _, key := range formData.Keys() {
-			keystr, err := AsString(key)
-			if err != nil {
-				return err
-			}
+		type formFI struct{ name, content string }
+		formVal := url.Values{}
+		formFile := map[string]*formFI{}
 
+		for _, key := range formData.Keys() {
+			keystr := dataconv.StarString(key)
 			val, _, err := formData.Get(key)
 			if err != nil {
 				return err
 			}
-			if val.Type() != "string" {
-				return fmt.Errorf("expected param value for key '%s' to be a string. got: '%s'", key, val.Type())
-			}
-			valstr, err := AsString(val)
-			if err != nil {
-				return err
-			}
 
-			form.Add(keystr, valstr)
+			switch v := val.(type) {
+			case starlark.String:
+				// for key, value pairs
+				formVal.Add(keystr, v.GoString())
+			case starlark.Indexable:
+				// for key, file paris
+				if v.Len() < 2 {
+					return fmt.Errorf("expected 2 values for key %s in form_body to be a tuple of (filename, content)", key)
+				}
+				// extract file name and content
+				ffi := &formFI{}
+				v0 := v.Index(0)
+				v1 := v.Index(1)
+				// check types
+				if vs, ok := v0.(starlark.String); !ok {
+					return fmt.Errorf("expected 1st value for key %s in form_body to be a string. got: %q", key, v0.Type())
+				} else {
+					ffi.name = vs.GoString()
+				}
+				if vs, ok := v1.(starlark.String); !ok {
+					return fmt.Errorf("expected 2nd value for key %s in form_body to be a string. got: %q", key, v1.Type())
+				} else {
+					ffi.content = vs.GoString()
+				}
+				formFile[keystr] = ffi
+			default:
+				return fmt.Errorf("expected param value for key %s in form_body to be a string or tuple. got: %q", key, val.Type())
+			}
+		}
+
+		// set form encoding implicitly if not set
+		if formEncoding == "" {
+			if len(formFile) > 0 {
+				formEncoding = formEncodingMultipart
+			} else {
+				formEncoding = formEncodingURL
+			}
 		}
 
 		var contentType string
 		switch formEncoding {
-		case formEncodingURL, "":
+		case formEncodingURL:
 			contentType = formEncodingURL
-			req.Body = ioutil.NopCloser(strings.NewReader(form.Encode()))
-			req.ContentLength = int64(len(form.Encode()))
+			req.Body = ioutil.NopCloser(strings.NewReader(formVal.Encode()))
+			req.ContentLength = int64(len(formVal.Encode()))
 
 		case formEncodingMultipart:
 			var b bytes.Buffer
@@ -366,7 +400,7 @@ func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, f
 
 			contentType = mw.FormDataContentType()
 
-			for k, values := range form {
+			for k, values := range formVal {
 				for _, v := range values {
 					w, err := mw.CreateFormField(k)
 					if err != nil {
@@ -375,6 +409,16 @@ func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, f
 					if _, err := w.Write([]byte(v)); err != nil {
 						return err
 					}
+				}
+			}
+
+			for k, v := range formFile {
+				w, err := mw.CreateFormFile(k, v.name)
+				if err != nil {
+					return err
+				}
+				if _, err := w.Write([]byte(v.content)); err != nil {
+					return err
 				}
 			}
 
