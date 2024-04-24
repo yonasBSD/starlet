@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -41,6 +42,8 @@ func LoadModule() (starlark.StringDict, error) {
 		"shared_dict":      starlark.NewBuiltin("shared_dict", makeSharedDict),
 		"make_shared_dict": starlark.NewBuiltin("make_shared_dict", makeCustomSharedDict),
 		"distinct":         starlark.NewBuiltin("distinct", distinct),
+		"eprint":           starlark.NewBuiltin("eprint", stderrPrint),
+		"pprint":           starlark.NewBuiltin("pprint", prettyPrint),
 	}, nil
 }
 
@@ -341,4 +344,55 @@ func makeCustomSharedDict(thread *starlark.Thread, b *starlark.Builtin, args sta
 		sd.SetTypeName(name)
 		return sd, nil
 	}
+}
+
+// stderrPrint works like standard print() but prints the given arguments to stderr.
+func stderrPrint(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	sep := " "
+	if err := starlark.UnpackArgs(b.Name(), nil, kwargs, "sep?", &sep); err != nil {
+		return nil, err
+	}
+	// build output string
+	buf := new(strings.Builder)
+	for i, v := range args {
+		if i > 0 {
+			buf.WriteString(sep)
+		}
+		// convert to string
+		buf.WriteString(dataconv.StarString(v))
+	}
+	// write to stderr
+	s := buf.String()
+	fmt.Fprintln(os.Stderr, s)
+	return starlark.None, nil
+}
+
+// prettyPrint works like standard print() but formats the given arguments in pretty JSON format with indentation.
+func prettyPrint(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	sep := " "
+	if err := starlark.UnpackArgs(b.Name(), nil, kwargs, "sep?", &sep); err != nil {
+		return nil, err
+	}
+	// build output string
+	buf := new(strings.Builder)
+	for i, v := range args {
+		if i > 0 {
+			buf.WriteString(sep)
+		}
+		// convert to JSON or string as fallback
+		raw, err := dataconv.MarshalStarlarkJSON(v, 4)
+		if err != nil {
+			buf.WriteString(dataconv.StarString(v))
+		} else {
+			buf.WriteString(raw)
+		}
+	}
+	// write like std print
+	s := buf.String()
+	if thread.Print != nil {
+		thread.Print(thread, s)
+	} else {
+		fmt.Fprintln(os.Stderr, s)
+	}
+	return starlark.None, nil
 }

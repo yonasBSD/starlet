@@ -863,6 +863,64 @@ func TestLoadModule_GoIdiomatic(t *testing.T) {
 			`),
 			wantErr: `distinct: for parameter iterable: got starlight_struct<*goidiomatic_test.testStruct>, want iterable`,
 		},
+		{
+			name: `eprint with invalid sep`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'eprint')
+				eprint("Hello, World!", sep=1)
+			`),
+			wantErr: `eprint: for parameter "sep": got int, want string`,
+		},
+		{
+			name: `eprint with string`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'eprint')
+				eprint("Hello, World!")
+			`),
+		},
+		{
+			name: `eprint with multiple values`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'eprint')
+				def mul(x): return x*100
+				eprint("Value:", 42, "Boolean:", True, mul)
+			`),
+		},
+		{
+			name: `pprint with invalid sep`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'pprint')
+				pprint("Hello, World!", sep=1)
+			`),
+			wantErr: `pprint: for parameter "sep": got int, want string`,
+		},
+		{
+			name: `pprint with dictionary`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'pprint')
+				pprint({"name": "Alice", "age": 30})
+				pprint({"key": "value", "list": [1, 2, 3]})
+				pprint({"key1": "value1"}, {"key2": "value2"}, sep="\n---\n")
+			`),
+		},
+		{
+			name: `pprint with circle`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'pprint')
+				x = {"num": 1}
+				x["self"] = x
+				y = {"name": "Alice", "age": 30}
+				pprint(y, x, y, sep="\n")
+			`),
+		},
+		{
+			name: `pprint with list and custom separator`,
+			script: itn.HereDoc(`
+				load('go_idiomatic', 'pprint')
+				def mul(x): return x*100
+				pprint(["apple", "banana", "cherry"], mul, sep=", ")
+			`),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
