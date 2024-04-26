@@ -9,6 +9,7 @@ import (
 
 	itn "github.com/1set/starlet/internal"
 	lf "github.com/1set/starlet/lib/file"
+	"go.starlark.net/starlark"
 )
 
 func TestLoadModule_File(t *testing.T) {
@@ -627,8 +628,18 @@ func TestLoadModule_File(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// skip windows
+			if isOnWindows && tt.skipWindows {
+				t.Skipf("Skip test on Windows")
+				return
+			}
+
 			// prepare temp file if needed
-			var tp string
+			var (
+				tp      string
+				td      string
+				predecl starlark.StringDict
+			)
 			if strings.Contains(tt.script, "%q") {
 				tf, err := os.CreateTemp("", "starlet-file-test-write")
 				if err != nil {
@@ -638,13 +649,21 @@ func TestLoadModule_File(t *testing.T) {
 				tp = tf.Name()
 				//t.Logf("Temp file to write: %s", tp)
 				tt.script = fmt.Sprintf(tt.script, tp)
+
+				td, err = os.MkdirTemp("", "starlet-file-test-dir")
+				if err != nil {
+					t.Errorf("os.MkdirTemp() expects no error, actual error = '%v'", err)
+					return
+				}
+
+				predecl = starlark.StringDict{
+					"temp_file": starlark.String(tp),
+					"temp_dir":  starlark.String(td),
+				}
 			}
+
 			// execute test
-			if isOnWindows && tt.skipWindows {
-				t.Skipf("Skip test on Windows")
-				return
-			}
-			res, err := itn.ExecModuleWithErrorTest(t, lf.ModuleName, lf.LoadModule, tt.script, tt.wantErr, nil)
+			res, err := itn.ExecModuleWithErrorTest(t, lf.ModuleName, lf.LoadModule, tt.script, tt.wantErr, predecl)
 			if (err != nil) != (tt.wantErr != "") {
 				t.Errorf("file(%q) expects error = '%v', actual error = '%v', result = %v", tt.name, tt.wantErr, err, res)
 			}

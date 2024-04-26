@@ -16,7 +16,7 @@ Returns an absolute representation of path. If the path is not absolute it will 
 
 #### Examples
 
-**String**
+**basic**
 
 Convert a relative path to an absolute path.
 
@@ -39,7 +39,7 @@ Joins one or more path elements into a single path intelligently, separating the
 
 #### Examples
 
-**String**
+**basic**
 
 Join multiple path parts.
 
@@ -62,7 +62,7 @@ Returns true if the path exists.
 
 #### Examples
 
-**String**
+**basic**
 
 Check if a path exists.
 
@@ -85,7 +85,7 @@ Returns true if the path exists and is a file.
 
 #### Examples
 
-**String**
+**basic**
 
 Check if a path is a file.
 
@@ -108,7 +108,7 @@ Returns true if the path exists and is a directory.
 
 #### Examples
 
-**String**
+**basic**
 
 Check if a path is a directory.
 
@@ -131,7 +131,7 @@ Returns true if the path exists and is a symbolic link.
 
 #### Examples
 
-**String**
+**basic**
 
 Check if a path is a symbolic link.
 
@@ -155,7 +155,7 @@ Returns a list of directory contents.
 
 #### Examples
 
-**String**
+**basic**
 
 List directory contents.
 
@@ -172,7 +172,7 @@ Returns the current working directory.
 
 #### Examples
 
-**String**
+**basic**
 
 Get the current working directory.
 
@@ -195,7 +195,7 @@ Changes the current working directory.
 
 #### Examples
 
-**String**
+**basic**
 
 Change the current working directory.
 
@@ -203,4 +203,37 @@ Change the current working directory.
 load("path", "chdir")
 chdir('/new/directory')
 # Current directory is now '/new/directory'
+```
+
+### `mkdir(path, mode=0o755)`
+
+Creates a directory with the given name. If the directory already exists, no error is thrown. It's capable of creating nested directories.
+
+#### Parameters
+
+| name   | type     | description                                                                                                           |
+|--------|----------|-----------------------------------------------------------------------------------------------------------------------|
+| `path` | `string` | The directory path to be created                                                                                      |
+| `mode` | `int`    | The file mode (permissions) to use for the newly-created directory, represented as an octal number. Defaults to 0755. |
+
+#### Examples
+
+**default**
+
+Create a new directory.
+
+```python
+load("path", "mkdir")
+mkdir('new_directory')
+# New directory named 'new_directory' is created with default permissions
+```
+
+**permission**
+
+Create a new directory with specific permissions.
+
+```python
+load("path", "mkdir")
+mkdir('secure_directory', 0o700)
+# New directory named 'secure_directory' is created with permissions set to 0700
 ```
