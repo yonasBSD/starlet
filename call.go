@@ -9,6 +9,9 @@ import (
 
 // Call executes a Starlark function or builtin saved in the thread and returns the result.
 func (m *Machine) Call(name string, args ...interface{}) (out interface{}, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	defer func() {
 		if r := recover(); r != nil {
 			err = errorStarlarkPanic("call", r)
@@ -49,7 +52,12 @@ func (m *Machine) Call(name string, args ...interface{}) (out interface{}, err e
 
 	// call and convert result
 	res, err := starlark.Call(m.thread, callFunc, sl, nil)
-	out = convert.FromValue(res)
+	if m.enableOutConv { // convert to interface{} if enabled
+		out = convert.FromValue(res)
+	} else {
+		out = res
+	}
+	// handle error
 	if err != nil {
 		return out, errorStarlarkError("call", err)
 	}
