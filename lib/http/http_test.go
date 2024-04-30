@@ -1,16 +1,17 @@
-package http
+package http_test
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
-	"strings"
+	"net/url"
 	"testing"
 	"time"
 
 	itn "github.com/1set/starlet/internal"
+	lh "github.com/1set/starlet/lib/http"
 	"github.com/1set/starlight/convert"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarktest"
@@ -27,7 +28,7 @@ func TestAsString(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		got, err := AsString(c.in)
+		got, err := lh.AsString(c.in)
 		if !(err == nil && c.err == "" || err != nil && err.Error() == c.err) {
 			t.Errorf("case %d error mismatch. expected: '%s', got: '%s'", i, c.err, err)
 			continue
@@ -49,7 +50,7 @@ func TestLoadModule_HTTP_One(t *testing.T) {
 	defer ts.Close()
 	starlark.Universe["test_server_url"] = starlark.String(ts.URL)
 
-	thread := &starlark.Thread{Load: itn.NewAssertLoader(ModuleName, LoadModule)}
+	thread := &starlark.Thread{Load: itn.NewAssertLoader(lh.ModuleName, lh.LoadModule)}
 	starlarktest.SetReporter(thread, t)
 
 	code := itn.HereDoc(`
@@ -296,7 +297,7 @@ func TestLoadModule_HTTP(t *testing.T) {
 		{
 			name: `POST with UA Set`,
 			preset: func() {
-				UserAgent = "GqQdYX3eIJw2DTt"
+				lh.UserAgent = "GqQdYX3eIJw2DTt"
 			},
 			script: itn.HereDoc(`
 				load('http', 'post')
@@ -575,8 +576,8 @@ func TestLoadModule_HTTP(t *testing.T) {
 			if tt.preset != nil {
 				tt.preset()
 			}
-			TimeoutSecond = 30.0
-			res, err := itn.ExecModuleWithErrorTest(t, ModuleName, LoadModule, tt.script, tt.wantErr, nil)
+			lh.TimeoutSecond = 30.0
+			res, err := itn.ExecModuleWithErrorTest(t, lh.ModuleName, lh.LoadModule, tt.script, tt.wantErr, nil)
 			if (err != nil) != (tt.wantErr != "") {
 				t.Errorf("http(%q) expects error = '%v', actual error = '%v', result = %v", tt.name, tt.wantErr, err, res)
 				return
@@ -585,65 +586,91 @@ func TestLoadModule_HTTP(t *testing.T) {
 	}
 }
 
-// we're ok with testing private functions if it simplifies the test :)
-func TestSetBody(t *testing.T) {
-	fd := map[string]string{
-		"foo": "bar baz",
-	}
+// DomainWhitelistGuard allows requests only to domains in its whitelist.
+type DomainWhitelistGuard struct {
+	whitelist map[string]struct{} // Set of allowed domains
+}
 
-	cases := []struct {
-		rawBody      starlark.String
-		formData     map[string]string
-		formEncoding starlark.String
-		jsonData     starlark.Value
-		body         string
-		err          string
+// NewDomainWhitelistGuard creates a new DomainWhitelistGuard with the specified domains.
+func NewDomainWhitelistGuard(domains []string) *DomainWhitelistGuard {
+	whitelist := make(map[string]struct{})
+	for _, domain := range domains {
+		whitelist[domain] = struct{}{}
+	}
+	return &DomainWhitelistGuard{whitelist: whitelist}
+}
+
+// Allowed checks if the request's domain is in the whitelist.
+func (g *DomainWhitelistGuard) Allowed(thread *starlark.Thread, req *http.Request) (*http.Request, error) {
+	if _, ok := g.whitelist[req.URL.Host]; ok {
+		// Domain is in the whitelist, allow the request
+		return req, nil
+	}
+	// Domain is not in the whitelist, deny the request
+	return nil, errors.New("request to this domain is not allowed")
+}
+
+func TestLoadModule_CustomLoad(t *testing.T) {
+	md := lh.NewModule()
+	proxyURL, _ := url.Parse("http://127.0.0.1:9999")
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		},
+	}
+	md.SetClient(client)
+	guard := NewDomainWhitelistGuard([]string{"allowed.com"})
+	md.SetGuard(guard)
+
+	httpHand := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := httputil.DumpRequest(r, true)
+		if err != nil {
+			t.Errorf("Error dumping request: %v", err)
+		}
+		t.Logf("Web server received request: [[%s]]", b)
+		time.Sleep(10 * time.Millisecond)
+		w.Write(b)
+	})
+	ts := httptest.NewServer(httpHand)
+	defer ts.Close()
+
+	tests := []struct {
+		name    string
+		preset  func()
+		script  string
+		wantErr string
 	}{
-		{starlark.String("hallo"), nil, starlark.String(""), nil, "hallo", ""},
-		{starlark.String(""), fd, starlark.String(""), nil, "foo=bar+baz", ""},
-		// TODO - this should check multipart form data is being set
-		{starlark.String(""), fd, starlark.String("multipart/form-data"), nil, "", ""},
-		{starlark.String(""), nil, starlark.String(""), starlark.Tuple{starlark.Bool(true), starlark.MakeInt(1), starlark.String("der")}, "[true,1,\"der\"]", ""},
+		{
+			name: `Simple GET`,
+			script: itn.HereDoc(`
+				load('http', 'get')
+				res = get("http://allowed.com/hello")
+				assert.eq(res.status_code, 200)
+			`),
+			wantErr: `proxyconnect tcp: dial tcp 127.0.0.1:9999: connect`,
+		},
+		{
+			name: `Not Allowed`,
+			script: itn.HereDoc(`
+				load('http', 'get')
+				res = get("http://topsecret.com/text")
+				assert.eq(res.status_code, 200)
+			`),
+			wantErr: `request to this domain is not allowed`,
+		},
 	}
-
-	for i, c := range cases {
-		var formData *starlark.Dict
-		if c.formData != nil {
-			formData = starlark.NewDict(len(c.formData))
-			for k, v := range c.formData {
-				if err := formData.SetKey(starlark.String(k), starlark.String(v)); err != nil {
-					t.Fatal(err)
-				}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.preset != nil {
+				tt.preset()
 			}
-		}
-
-		req := httptest.NewRequest("get", "https://example.com", nil)
-		err := setBody(req, c.rawBody, formData, c.formEncoding, c.jsonData)
-		if !(err == nil && c.err == "" || (err != nil && err.Error() == c.err)) {
-			t.Errorf("case %d error mismatch. expected: %s, got: %s", i, c.err, err)
-			continue
-		}
-
-		if strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data;") {
-			if err := req.ParseMultipartForm(0); err != nil {
-				t.Fatal(err)
+			res, err := itn.ExecModuleWithErrorTest(t, lh.ModuleName, md.LoadModule, tt.script, tt.wantErr, starlark.StringDict{
+				"test_server_url": starlark.String(ts.URL),
+			})
+			if (err != nil) != (tt.wantErr != "") {
+				t.Errorf("http(%q) expects error = '%v', actual error = '%v', result = %v", tt.name, tt.wantErr, err, res)
+				return
 			}
-
-			for k, v := range c.formData {
-				fv := req.FormValue(k)
-				if fv != v {
-					t.Errorf("case %d error mismatch. expected %s=%s, got: %s", i, k, v, fv)
-				}
-			}
-		} else {
-			body, err := ioutil.ReadAll(req.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if string(body) != c.body {
-				t.Errorf("case %d body mismatch. expected: %s, got: %s", i, c.body, string(body))
-			}
-		}
+		})
 	}
 }

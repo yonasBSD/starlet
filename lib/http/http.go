@@ -50,24 +50,42 @@ type RequestGuard interface {
 
 // LoadModule creates an http Module
 func LoadModule() (starlark.StringDict, error) {
-	var m = &Module{}
+	return NewModule().LoadModule()
+}
+
+// Module defines the actual HTTP module with methods for making requests.
+type Module struct {
+	cli *http.Client
+	rg  RequestGuard
+}
+
+// NewModule creates a new http module with default settings.
+func NewModule() *Module {
+	m := &Module{}
 	if Client != nil {
 		m.cli = Client
 	}
 	if Guard != nil {
 		m.rg = Guard
 	}
-	ns := starlark.StringDict{
-		ModuleName: m.Struct(),
-	}
-	return ns, nil
+	return m
 }
 
-// Module joins http tools to a dataset, allowing dataset
-// to follow along with http requests
-type Module struct {
-	cli *http.Client
-	rg  RequestGuard
+// SetClient sets the http client for this module, useful for setting custom clients for testing or multiple loadings.
+func (m *Module) SetClient(c *http.Client) {
+	m.cli = c
+}
+
+// SetGuard sets the request guard for this module, useful for setting custom guards for testing or multiple loadings.
+func (m *Module) SetGuard(g RequestGuard) {
+	m.rg = g
+}
+
+// LoadModule creates an http Module.
+func (m *Module) LoadModule() (starlark.StringDict, error) {
+	return starlark.StringDict{
+		ModuleName: m.Struct(),
+	}, nil
 }
 
 // Struct returns this module's methods as a starlark Struct
