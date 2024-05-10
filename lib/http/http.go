@@ -88,16 +88,19 @@ func (m *Module) LoadModule() (starlark.StringDict, error) {
 	}, nil
 }
 
-// Struct returns this module's methods as a starlark Struct
+// Struct returns this module's supported methods as a starlark Struct
 func (m *Module) Struct() *starlarkstruct.Struct {
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, m.StringDict())
 }
 
+var (
+	supportedMethods = []string{"get", "put", "post", "postForm", "delete", "head", "patch", "options"}
+)
+
 // StringDict returns all module methods in a starlark.StringDict
 func (m *Module) StringDict() starlark.StringDict {
-	methods := []string{"get", "put", "post", "postForm", "delete", "head", "patch", "options"}
-	sd := make(starlark.StringDict, len(methods))
-	for _, name := range methods {
+	sd := make(starlark.StringDict, len(supportedMethods))
+	for _, name := range supportedMethods {
 		sd[name] = starlark.NewBuiltin(ModuleName+"."+name, m.reqMethod(name))
 	}
 	sd["set_timeout"] = starlark.NewBuiltin(ModuleName+".set_timeout", setRequestTimeout)
@@ -137,20 +140,20 @@ func (m *Module) reqMethod(method string) func(thread *starlark.Thread, b *starl
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var (
 			urlv          starlark.String
-			params        = &starlark.Dict{}
-			headers       = &starlark.Dict{}
-			formBody      = &starlark.Dict{}
-			formEncoding  starlark.String
-			auth          starlark.Tuple
-			body          itn.StringOrBytes
-			jsonBody      starlark.Value
+			params        = itn.NullableDict{}   // default None, expect Dict
+			headers       = itn.NullableDict{}   // default None, expect Dict
+			auth          starlark.Tuple         // default empty Tuple, expect Tuple of two strings
+			body          = itn.NullableString{} // default None, expect string
+			jsonBody      starlark.Value         // default None, expect JSON serializable object
+			formBody      = itn.NullableDict{}   // default None, expect Dict
+			formEncoding  starlark.String        // default empty string, expect string
 			timeout       = itn.FloatOrInt(TimeoutSecond)
 			allowRedirect = starlark.Bool(!DisableRedirect)
 			verifySSL     = starlark.Bool(!SkipInsecureVerify)
 		)
 
-		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "url", &urlv, "params?", &params, "headers", &headers, "body", &body, "form_body", &formBody, "form_encoding", &formEncoding, "json_body", &jsonBody,
-			"auth", &auth, "timeout?", &timeout, "allow_redirects?", &allowRedirect, "verify?", &verifySSL); err != nil {
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "url", &urlv, "params?", &params, "headers", &headers, "body", &body, "json_body", &jsonBody, "form_body", &formBody, "form_encoding", &formEncoding,
+			"auth?", &auth, "timeout?", &timeout, "allow_redirects?", &allowRedirect, "verify?", &verifySSL); err != nil {
 			return nil, err
 		}
 
@@ -158,7 +161,7 @@ func (m *Module) reqMethod(method string) func(thread *starlark.Thread, b *starl
 		if err != nil {
 			return nil, err
 		}
-		if err = setQueryParams(&rawURL, params); err != nil {
+		if err = setQueryParams(&rawURL, params.AsDict()); err != nil {
 			return nil, err
 		}
 
@@ -179,13 +182,13 @@ func (m *Module) reqMethod(method string) func(thread *starlark.Thread, b *starl
 			}
 		}
 
-		if err = setHeaders(req, headers); err != nil {
+		if err = setHeaders(req, headers.AsDict()); err != nil {
 			return nil, err
 		}
 		if err = setAuth(req, auth); err != nil {
 			return nil, err
 		}
-		if err = setBody(req, body.StarlarkString(), formBody, formEncoding, jsonBody); err != nil {
+		if err = setBody(req, &body, formBody.AsDict(), formEncoding, jsonBody); err != nil {
 			return nil, err
 		}
 
@@ -329,12 +332,9 @@ func setHeaders(req *http.Request, headers *starlark.Dict) error {
 	return nil
 }
 
-func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, formEncoding starlark.String, jsonData starlark.Value) error {
-	if !dataconv.IsEmptyString(body) {
-		uq, err := strconv.Unquote(body.String())
-		if err != nil {
-			return err
-		}
+func setBody(req *http.Request, body *itn.NullableString, formData *starlark.Dict, formEncoding starlark.String, jsonData starlark.Value) error {
+	if !body.IsNullOrEmpty() {
+		uq := body.GoString()
 		req.Body = ioutil.NopCloser(strings.NewReader(uq))
 		// Specifying the Content-Length ensures that https://go.dev/src/net/http/transfer.go doesnt specify Transfer-Encoding: chunked which is not supported by some endpoints.
 		// This is required when using ioutil.NopCloser method for the request body (see ShouldSendChunkedRequestBody() in the library mentioned above).
@@ -343,7 +343,7 @@ func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, f
 		return nil
 	}
 
-	if jsonData != nil && jsonData.String() != "" {
+	if jsonData != nil && jsonData != starlark.None && jsonData.String() != "" {
 		req.Header.Set("Content-Type", "application/json")
 		data, err := dataconv.MarshalStarlarkJSON(jsonData, 0)
 		if err != nil {
@@ -454,8 +454,7 @@ func setBody(req *http.Request, body starlark.String, formData *starlark.Dict, f
 	return nil
 }
 
-// Response represents an HTTP response, wrapping a go http.Response with
-// starlark methods
+// Response represents an HTTP response, wrapping a Go http.Response with Starlark methods.
 type Response struct {
 	http.Response
 }
