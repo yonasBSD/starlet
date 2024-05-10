@@ -16,7 +16,7 @@ var (
 	_ starlark.Unpacker = (*StringOrBytes)(nil)
 	_ starlark.Unpacker = (*NullableString)(nil)
 	_ starlark.Unpacker = (*NullableDict)(nil)
-	//_ starlark.Unpacker = (*NumericValue)(nil)
+	_ starlark.Unpacker = (*NumericValue)(nil)
 )
 
 // FloatOrInt is an Unpacker that converts a Starlark int or float to Go's float64.
@@ -161,6 +161,20 @@ func NewNumericValue() *NumericValue {
 	return &NumericValue{intValue: starlark.MakeInt(0), floatValue: starlark.Float(0)}
 }
 
+// Unpack implements Unpacker.
+func (n *NumericValue) Unpack(v starlark.Value) error {
+	switch v := v.(type) {
+	case starlark.Int:
+		n.intValue = v
+	case starlark.Float:
+		n.floatValue = v
+		n.hasFloat = true
+	default:
+		return fmt.Errorf("got %s, want float or int", v.Type())
+	}
+	return nil
+}
+
 // Add takes a Starlark Value and adds it to the NumericValue.
 // It returns an error if the given value is neither an int nor a float.
 func (n *NumericValue) Add(value starlark.Value) error {
@@ -170,6 +184,8 @@ func (n *NumericValue) Add(value starlark.Value) error {
 	case starlark.Float:
 		n.floatValue += value
 		n.hasFloat = true
+	case starlark.NoneType:
+		// do nothing
 	case nil:
 		// do nothing
 	default:
