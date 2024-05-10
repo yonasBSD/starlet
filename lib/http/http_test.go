@@ -155,8 +155,10 @@ func TestLoadModule_HTTP(t *testing.T) {
 			script: itn.HereDoc(`
 				load('http', 'get')
 				res = get(test_server_url)
+				b = res.body()
 				assert.eq(res.status_code, 200)
-				print(res.body())
+				assert.true(b.endswith("\r\n\r\n"))
+				print(b)
 			`),
 		},
 		{
@@ -207,7 +209,20 @@ func TestLoadModule_HTTP(t *testing.T) {
 				assert.eq(res.status_code, 200)
 				b = res.body()
 				assert.true(b.startswith("POST "))
-				assert.true('/json' in b)
+				assert.true('application/json' in b)
+				assert.true('{"a":"b","c":"d"}' in b)
+			`),
+		},
+		{
+			name: `POST JSON Dict and Params`,
+			script: itn.HereDoc(`
+				load('http', 'post')
+				res = post(test_server_url, params={"hello": "world"}, json_body={ "a" : "b", "c" : "d"})
+				assert.eq(res.status_code, 200)
+				b = res.body()
+				assert.true(b.startswith("POST "))
+				assert.true('application/json' in b)
+				assert.true('/?hello=world' in b)
 				assert.true('{"a":"b","c":"d"}' in b)
 			`),
 		},
@@ -578,6 +593,54 @@ func TestLoadModule_HTTP(t *testing.T) {
 				assert.true('filename="better.txt"' not in rb)
 				assert.true('filename="dance.md"' not in rb)
 				assert.true('Content-Type: application/octet-stream' not in rb)
+			`),
+		},
+		{
+			name: `Call No Arg`,
+			script: itn.HereDoc(`
+				load('http', 'call')
+				call()
+			`),
+			wantErr: `http.call: missing method name`,
+		},
+		{
+			name: `Call Invalid Arg`,
+			script: itn.HereDoc(`
+				load('http', 'call')
+				call(123)
+			`),
+			wantErr: `http.call: for method name: got int, want string or bytes`,
+		},
+		{
+			name: `Call Invalid Method`,
+			script: itn.HereDoc(`
+				load('http', 'call')
+				call("LOVE")
+			`),
+			wantErr: `unsupported method: love`,
+		},
+		{
+			name: `Simple Call GET`,
+			script: itn.HereDoc(`
+				load('http', 'call')
+				res = call('get', test_server_url)
+				assert.eq(res.status_code, 200)
+				b = res.body()
+				assert.eq(res.status_code, 200)
+				assert.true(b.endswith("\r\n\r\n"))
+			`),
+		},
+		{
+			name: `Call POST JSON Dict and Params`,
+			script: itn.HereDoc(`
+				load('http', 'call')
+				res = call('POST', test_server_url, params={"hello": "world"}, json_body={ "a" : "b", "c" : "d"})
+				assert.eq(res.status_code, 200)
+				b = res.body()
+				assert.true(b.startswith("POST "))
+				assert.true('application/json' in b)
+				assert.true('/?hello=world' in b)
+				assert.true('{"a":"b","c":"d"}' in b)
 			`),
 		},
 	}
