@@ -6,79 +6,126 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// Unpacker is an interface for types that can be unpacked from Starlark values.
-var (
-	_ starlark.Unpacker = (*NullableString)(nil)
-	_ starlark.Unpacker = (*NullableDict)(nil)
-)
-
-// NullableString is an Unpacker that converts a Starlark None or string to Go's string.
-type NullableString struct {
-	str *string
+// Nullable is an Unpacker that converts a Starlark None or T to Go's starlark.Value.
+type Nullable[T starlark.Value] struct {
+	value        *T
+	defaultValue T
 }
 
-// NewNullableString creates and returns a new NullableString.
-func NewNullableString(s string) *NullableString {
-	return &NullableString{str: &s}
+// NewNullable creates and returns a new Nullable with the given default value.
+func NewNullable[T starlark.Value](defaultValue T) *Nullable[T] {
+	return &Nullable[T]{value: nil, defaultValue: defaultValue}
 }
 
 // Unpack implements Unpacker.
-func (p *NullableString) Unpack(v starlark.Value) error {
-	switch v := v.(type) {
-	case starlark.String:
-		s := string(v)
-		p.str = &s
-	case starlark.Bytes:
-		s := string(v)
-		p.str = &s
-	case starlark.NoneType:
-		p.str = nil
-	default:
-		return fmt.Errorf("got %s, want string, bytes or None", v.Type())
+func (p *Nullable[T]) Unpack(v starlark.Value) error {
+	if p == nil {
+		return fmt.Errorf("nil pointer")
+	}
+	if _, ok := v.(starlark.NoneType); ok {
+		p.value = nil
+	} else if t, ok := v.(T); ok {
+		p.value = &t
+	} else {
+		return fmt.Errorf("got %s, want %s or None", v.Type(), p.defaultValue.Type())
 	}
 	return nil
-}
-
-// GoString returns the Go string representation of the NullableString, if the underlying value is nil, it returns an empty string.
-func (p *NullableString) GoString() string {
-	if p == nil || p.str == nil {
-		return ""
-	}
-	return *p.str
 }
 
 // IsNull returns true if the underlying value is nil.
-func (p *NullableString) IsNull() bool {
-	return p == nil || p.str == nil
+func (p *Nullable[T]) IsNull() bool {
+	return p == nil || p.value == nil
 }
 
-// IsNullOrEmpty returns true if the underlying value is nil or an empty string.
-func (p *NullableString) IsNullOrEmpty() bool {
-	return p.IsNull() || p.GoString() == emptyStr
-}
-
-// NullableDict is an Unpacker that converts a Starlark None or Dict to Go's *starlark.Dict.
-type NullableDict struct {
-	dict *starlark.Dict
-}
-
-// Unpack implements Unpacker.
-func (p *NullableDict) Unpack(v starlark.Value) error {
-	switch v := v.(type) {
-	case *starlark.Dict:
-		p.dict = v
-	case starlark.NoneType:
-		p.dict = nil
-	default:
-		return fmt.Errorf("got %s, want dict or None", v.Type())
+// Value returns the underlying value or default value if the underlying value is nil.
+func (p *Nullable[T]) Value() T {
+	if p.IsNull() {
+		return p.defaultValue
 	}
-	return nil
+	return *p.value
 }
 
-// AsDict returns the *starlark.Dict representation of the NullableDict, if the underlying dict is nil, it returns an new empty dict.
-func (p *NullableDict) AsDict() *starlark.Dict {
-	if p.dict == nil {
-		return starlark.NewDict(0)
-	}
-	return p.dict
-}
+type (
+	// NullableInt is an Unpacker that converts a Starlark None or Int.
+	NullableInt = Nullable[starlark.Int]
+
+	// NullableFloat is an Unpacker that converts a Starlark None or Float.
+	NullableFloat = Nullable[starlark.Float]
+
+	// NullableBool is an Unpacker that converts a Starlark None or Bool.
+	NullableBool = Nullable[starlark.Bool]
+
+	// NullableString is an Unpacker that converts a Starlark None or String.
+	NullableString = Nullable[starlark.String]
+
+	// NullableBytes is an Unpacker that converts a Starlark None or Bytes.
+	NullableBytes = Nullable[starlark.Bytes]
+
+	// NullableList is an Unpacker that converts a Starlark None or List.
+	NullableList = Nullable[*starlark.List]
+
+	// NullableTuple is an Unpacker that converts a Starlark None or Tuple.
+	NullableTuple = Nullable[starlark.Tuple]
+
+	// NullableSet is an Unpacker that converts a Starlark None or Set.
+	NullableSet = Nullable[*starlark.Set]
+
+	// NullableDict is an Unpacker that converts a Starlark None or Dict.
+	NullableDict = Nullable[*starlark.Dict]
+
+	// NullableIterable is an Unpacker that converts a Starlark None or Iterable.
+	NullableIterable = Nullable[starlark.Iterable]
+
+	// NullableCallable is an Unpacker that converts a Starlark None or Callable.
+	NullableCallable = Nullable[starlark.Callable]
+)
+
+// Unpacker is an interface for types that can be unpacked from Starlark values.
+var (
+	_ starlark.Unpacker = (*NullableInt)(nil)
+	_ starlark.Unpacker = (*NullableFloat)(nil)
+	_ starlark.Unpacker = (*NullableBool)(nil)
+	_ starlark.Unpacker = (*NullableString)(nil)
+	_ starlark.Unpacker = (*NullableBytes)(nil)
+	_ starlark.Unpacker = (*NullableList)(nil)
+	_ starlark.Unpacker = (*NullableTuple)(nil)
+	_ starlark.Unpacker = (*NullableSet)(nil)
+	_ starlark.Unpacker = (*NullableDict)(nil)
+	_ starlark.Unpacker = (*NullableCallable)(nil)
+	_ starlark.Unpacker = (*NullableIterable)(nil)
+)
+
+var (
+	// NewNullableInt creates and returns a new NullableInt with the given default value.
+	NewNullableInt = func(dv starlark.Int) *NullableInt { return NewNullable[starlark.Int](dv) }
+
+	// NewNullableFloat creates and returns a new NullableFloat with the given default value.
+	NewNullableFloat = func(dv starlark.Float) *NullableFloat { return NewNullable[starlark.Float](dv) }
+
+	// NewNullableBool creates and returns a new NullableBool with the given default value.
+	NewNullableBool = func(dv starlark.Bool) *NullableBool { return NewNullable[starlark.Bool](dv) }
+
+	// NewNullableString creates and returns a new NullableString with the given default value.
+	NewNullableString = func(dv starlark.String) *NullableString { return NewNullable[starlark.String](dv) }
+
+	// NewNullableBytes creates and returns a new NullableBytes with the given default value.
+	NewNullableBytes = func(dv starlark.Bytes) *NullableBytes { return NewNullable[starlark.Bytes](dv) }
+
+	// NewNullableList creates and returns a new NullableList with the given default value.
+	NewNullableList = func(dv *starlark.List) *NullableList { return NewNullable[*starlark.List](dv) }
+
+	// NewNullableTuple creates and returns a new NullableTuple with the given default value.
+	NewNullableTuple = func(dv starlark.Tuple) *NullableTuple { return NewNullable[starlark.Tuple](dv) }
+
+	// NewNullableSet creates and returns a new NullableSet with the given default value.
+	NewNullableSet = func(dv *starlark.Set) *NullableSet { return NewNullable[*starlark.Set](dv) }
+
+	// NewNullableDict creates and returns a new NullableDict with the given default value.
+	NewNullableDict = func(dv *starlark.Dict) *NullableDict { return NewNullable[*starlark.Dict](dv) }
+
+	// NewNullableIterable creates and returns a new NullableIterable with the given default value.
+	NewNullableIterable = func(dv starlark.Iterable) *NullableIterable { return NewNullable[starlark.Iterable](dv) }
+
+	// NewNullableCallable creates and returns a new NullableCallable with the given default value.
+	NewNullableCallable = func(dv starlark.Callable) *NullableCallable { return NewNullable[starlark.Callable](dv) }
+)
