@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/1set/starlet/dataconv"
-	itn "github.com/1set/starlet/internal"
+	tps "github.com/1set/starlet/dataconv/types"
 	"github.com/1set/starlet/internal/replacecr"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -46,7 +46,7 @@ func LoadModule() (starlark.StringDict, error) {
 // readAll gets all values from a csv source string.
 func readAll(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
-		source                       itn.StringOrBytes
+		source                       tps.StringOrBytes
 		lazyQuotes, trimLeadingSpace bool
 		skipRow, limitRow            int
 		fieldsPerRecord              int

@@ -8,7 +8,7 @@ import (
 	"net/url"
 
 	"github.com/1set/starlet/dataconv"
-	itn "github.com/1set/starlet/internal"
+	tps "github.com/1set/starlet/dataconv/types"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -310,7 +310,7 @@ func (r *ServerResponse) setStatus(thread *starlark.Thread, b *starlark.Builtin,
 }
 
 func (r *ServerResponse) addHeaderValue(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var key, value itn.StringOrBytes
+	var key, value tps.StringOrBytes
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "key", &key, "value", &value); err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func (r *ServerResponse) addHeaderValue(thread *starlark.Thread, b *starlark.Bui
 }
 
 func (r *ServerResponse) setContentType(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var ct itn.StringOrBytes
+	var ct tps.StringOrBytes
 	if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &ct); err != nil {
 		return nil, err
 	}
@@ -334,7 +334,7 @@ func (r *ServerResponse) setContentType(thread *starlark.Thread, b *starlark.Bui
 // setData sets the response data with the given type except JSON.
 func (r *ServerResponse) setData(dt contentDataType) func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var data itn.StringOrBytes
+		var data tps.StringOrBytes
 		if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &data); err != nil {
 			return nil, err
 		}

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	itn "github.com/1set/starlet/internal"
+	tps "github.com/1set/starlet/dataconv/types"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -69,7 +69,7 @@ func selectEncoder(encoding starlark.String) (encoder *gobase64.Encoding, err er
 
 func encodeString(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
-		data     itn.StringOrBytes
+		data     tps.StringOrBytes
 		encoding starlark.String
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "data", &data, "encoding?", &encoding); err != nil {
@@ -87,7 +87,7 @@ func encodeString(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tu
 
 func decodeString(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
-		data     itn.StringOrBytes
+		data     tps.StringOrBytes
 		encoding starlark.String
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "data", &data, "encoding?", &encoding); err != nil {
