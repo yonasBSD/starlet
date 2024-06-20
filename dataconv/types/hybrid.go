@@ -3,6 +3,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 
 	"go.starlark.net/starlark"
 )
@@ -41,9 +42,40 @@ func (p FloatOrInt) GoFloat() float64 {
 	return float64(p)
 }
 
+// GoFloat32 returns the Go float32 representation of the FloatOrInt.
+func (p FloatOrInt) GoFloat32() float32 {
+	return float32(p)
+}
+
+// GoFloat64 returns the Go float64 representation of the FloatOrInt.
+func (p FloatOrInt) GoFloat64() float64 {
+	return float64(p)
+}
+
 // GoInt returns the Go int representation of the FloatOrInt.
 func (p FloatOrInt) GoInt() int {
-	return int(p)
+	return int(clampToRange(float64(p), float64(math.MinInt), float64(math.MaxInt)))
+}
+
+// GoInt32 returns the Go int32 representation of the FloatOrInt.
+func (p FloatOrInt) GoInt32() int32 {
+	return int32(clampToRange(float64(p), float64(math.MinInt32), float64(math.MaxInt32)))
+}
+
+// GoInt64 returns the Go int64 representation of the FloatOrInt.
+func (p FloatOrInt) GoInt64() int64 {
+	return int64(clampToRange(float64(p), float64(math.MinInt64), float64(math.MaxInt64)))
+}
+
+// clampToRange clamps the input float64 value to the specified min and max range
+func clampToRange(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 // NumericValue holds a Starlark numeric value and tracks its type.
@@ -146,6 +178,11 @@ type NullableStringOrBytes struct {
 // NewNullableStringOrBytes creates and returns a new NullableStringOrBytes.
 func NewNullableStringOrBytes(s string) *NullableStringOrBytes {
 	return &NullableStringOrBytes{str: &s}
+}
+
+// NewNullableStringOrBytesNoDefault creates and returns a new NullableStringOrBytes without a default value.
+func NewNullableStringOrBytesNoDefault() *NullableStringOrBytes {
+	return &NullableStringOrBytes{str: nil}
 }
 
 // Unpack implements Unpacker.

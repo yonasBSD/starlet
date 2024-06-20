@@ -1,6 +1,8 @@
 package types
 
 import (
+	"math"
+	"runtime"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -42,36 +44,131 @@ func TestFloatOrInt_Unpack(t *testing.T) {
 	}
 }
 
+func TestOverflow(t *testing.T) {
+	i := math.MaxInt64
+	t.Logf("Int: %d", i)
+	f := FloatOrInt(i)
+	t.Logf("Float: %f", f)
+	f2 := FloatOrInt(i) + 1
+	t.Logf("Float+1: %f", f2)
+	t.Logf("Float <=>: %t %t %t", f2 < f, f2 == f, f2 > f)
+
+	t.Logf("GoInt: %d", f2.GoInt())
+	t.Logf("GoInt32: %d", f2.GoInt32())
+	t.Logf("GoInt64: %d", f2.GoInt64())
+}
+
 func TestFloatOrInt_Value(t *testing.T) {
+	t.Logf("Testing on %s", runtime.GOARCH)
+	t.Logf("MinInt: %d, MaxInt: %d", math.MinInt, math.MaxInt)
+	t.Logf("MinInt32: %d, MaxInt32: %d", math.MinInt32, math.MaxInt32)
+	t.Logf("MinInt64: %d, MaxInt64: %d", math.MinInt64, math.MaxInt64)
+	t.Logf("MinFloat32: %f, MaxFloat32: %f", math.SmallestNonzeroFloat32, math.MaxFloat32)
+	t.Logf("MinFloat64: %f, MaxFloat64: %f", math.SmallestNonzeroFloat64, math.MaxFloat64)
+
 	tests := []struct {
-		name    string
-		v       FloatOrInt
-		wantInt int
-		wantFlt float64
+		name      string
+		v         FloatOrInt
+		wantInt   int
+		wantInt32 int32
+		wantInt64 int64
+		wantFlt   float64
 	}{
 		{
-			name:    "zero",
-			v:       0,
-			wantInt: 0,
-			wantFlt: 0,
+			name:      "zero",
+			v:         0,
+			wantInt:   0,
+			wantInt32: 0,
+			wantInt64: 0,
+			wantFlt:   0,
 		},
 		{
-			name:    "int",
-			v:       1,
-			wantInt: 1,
-			wantFlt: 1,
+			name:      "int",
+			v:         1,
+			wantInt:   1,
+			wantInt32: 1,
+			wantInt64: 1,
+			wantFlt:   1,
 		},
 		{
-			name:    "float",
-			v:       1.2,
-			wantInt: 1,
-			wantFlt: 1.2,
+			name:      "float",
+			v:         1.2,
+			wantInt:   1,
+			wantInt32: 1,
+			wantInt64: 1,
+			wantFlt:   1.2,
 		},
 		{
-			name:    "large",
-			v:       1e12 + 1,
-			wantInt: 1000000000001,
-			wantFlt: 1e12 + 1,
+			name:      "large",
+			v:         1e12 + 1,
+			wantInt:   1000000000001,
+			wantInt32: 2147483647,
+			wantInt64: 1000000000001,
+			wantFlt:   1e12 + 1,
+		},
+		{
+			name:      "underflow",
+			v:         -1e12 - 1,
+			wantInt:   -1000000000001,
+			wantInt32: -2147483648,
+			wantInt64: -1000000000001,
+			wantFlt:   -1e12 - 1,
+		},
+		{
+			name:      "int32_max",
+			v:         FloatOrInt(math.MaxInt32),
+			wantInt:   math.MaxInt32,
+			wantInt32: math.MaxInt32,
+			wantInt64: math.MaxInt32,
+			wantFlt:   float64(math.MaxInt32),
+		},
+		{
+			name:      "int32_overflow",
+			v:         FloatOrInt(math.MaxInt32) + 1,
+			wantInt:   int(math.MaxInt32) + 1,
+			wantInt32: math.MaxInt32,
+			wantInt64: int64(math.MaxInt32) + 1,
+			wantFlt:   float64(math.MaxInt32) + 1,
+		},
+		{
+			name:      "negative_int32_min",
+			v:         FloatOrInt(math.MinInt32),
+			wantInt:   math.MinInt32,
+			wantInt32: math.MinInt32,
+			wantInt64: int64(math.MinInt32),
+			wantFlt:   float64(math.MinInt32),
+		},
+		{
+			name:      "negative_int32_underflow",
+			v:         FloatOrInt(math.MinInt32) - 1,
+			wantInt:   int(math.MinInt32) - 1,
+			wantInt32: math.MinInt32,
+			wantInt64: int64(math.MinInt32) - 1,
+			wantFlt:   float64(math.MinInt32) - 1,
+		},
+		//{
+		//	name:      "int64_max",
+		//	v:         FloatOrInt(math.MaxInt64),
+		//	wantInt:   math.MaxInt,
+		//	wantInt32: math.MaxInt32,
+		//	wantInt64: math.MaxInt64,
+		//	wantFlt:   float64(math.MaxInt64),
+		//},
+		//{
+		//	name:      "int64_overflow",
+		//	v:         FloatOrInt(math.MaxInt64) + 1000,
+		//	wantInt:   math.MaxInt,
+		//	wantInt32: math.MaxInt32,
+		//	wantInt64: math.MaxInt64,
+		//	wantFlt:   float64(math.MaxInt64) + 1000,
+		//},
+		{
+			name:      "negative_int64_underflow",
+			v:         FloatOrInt(math.MinInt64) - 1000,
+			wantInt:   math.MinInt,
+			wantInt32: math.MinInt32,
+			wantInt64: math.MinInt64,
+			wantFlt:   float64(math.MinInt64) - 1000,
 		},
 	}
 	for _, tt := range tests {
@@ -79,8 +176,21 @@ func TestFloatOrInt_Value(t *testing.T) {
 			if got := tt.v.GoInt(); got != tt.wantInt {
 				t.Errorf("FloatOrInt.GoInt() = %v, want %v", got, tt.wantInt)
 			}
+			if got := tt.v.GoInt32(); got != tt.wantInt32 {
+				t.Errorf("FloatOrInt.GoInt32() = %v, want %v", got, tt.wantInt32)
+			}
+			if got := tt.v.GoInt64(); got != tt.wantInt64 {
+				t.Errorf("FloatOrInt.GoInt64() = %v, want %v", got, tt.wantInt64)
+			}
+
 			if got := tt.v.GoFloat(); got != tt.wantFlt {
 				t.Errorf("FloatOrInt.GoFloat() = %v, want %v", got, tt.wantFlt)
+			}
+			if got := tt.v.GoFloat32(); got != float32(tt.wantFlt) {
+				t.Errorf("FloatOrInt.GoFloat32() = %v, want %v", got, float32(tt.wantFlt))
+			}
+			if got := tt.v.GoFloat64(); got != tt.wantFlt {
+				t.Errorf("FloatOrInt.GoFloat64() = %v, want %v", got, tt.wantFlt)
 			}
 		})
 	}
@@ -421,6 +531,13 @@ func TestNullableStringOrBytes_Methods(t *testing.T) {
 		{
 			name:        "nil value",
 			str:         &NullableStringOrBytes{},
+			wantStr:     "",
+			wantIsNull:  true,
+			wantIsEmpty: true,
+		},
+		{
+			name:        "no default",
+			str:         NewNullableStringOrBytesNoDefault(),
 			wantStr:     "",
 			wantIsNull:  true,
 			wantIsEmpty: true,
