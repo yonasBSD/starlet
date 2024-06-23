@@ -2,6 +2,7 @@ package types
 
 import (
 	"math"
+	"reflect"
 	"runtime"
 	"testing"
 
@@ -437,12 +438,14 @@ func TestStringOrBytes_Stringer(t *testing.T) {
 		v        StringOrBytes
 		wantGo   string
 		wantStar starlark.String
+		empty    bool
 	}{
 		{
 			name:     "empty",
 			v:        "",
 			wantGo:   "",
 			wantStar: starlark.String(""),
+			empty:    true,
 		},
 		{
 			name:     "string",
@@ -467,6 +470,12 @@ func TestStringOrBytes_Stringer(t *testing.T) {
 			}
 			if got := tt.v.StarlarkString(); got != tt.wantStar {
 				t.Errorf("StringOrBytes.StarlarkString() = %v, want %v", got, tt.wantStar)
+			}
+			if got := tt.v.StarlarkBytes(); got != starlark.Bytes(tt.wantStar) {
+				t.Errorf("StringOrBytes.StarlarkBytes() = %v, want %v", got, starlark.Bytes(tt.wantStar))
+			}
+			if got := tt.v.IsEmpty(); got != tt.empty {
+				t.Errorf("StringOrBytes.IsEmpty() = %v, want %v", got, tt.empty)
 			}
 		})
 	}
@@ -517,50 +526,71 @@ func TestNullableStringOrBytes_Methods(t *testing.T) {
 	tests := []struct {
 		name        string
 		str         *NullableStringOrBytes
-		wantStr     string
+		wantGoStr   string
+		wantGoBytes []byte
+		wantStarStr starlark.String
 		wantIsNull  bool
 		wantIsEmpty bool
 	}{
 		{
 			name:        "nil",
 			str:         nil,
-			wantStr:     "",
+			wantGoStr:   "",
+			wantGoBytes: nil,
+			wantStarStr: starlark.String(""),
 			wantIsNull:  true,
 			wantIsEmpty: true,
 		},
 		{
 			name:        "nil value",
 			str:         &NullableStringOrBytes{},
-			wantStr:     "",
+			wantGoStr:   "",
+			wantGoBytes: nil,
+			wantStarStr: starlark.String(""),
 			wantIsNull:  true,
 			wantIsEmpty: true,
 		},
 		{
 			name:        "no default",
 			str:         NewNullableStringOrBytesNoDefault(),
-			wantStr:     "",
+			wantGoStr:   "",
+			wantGoBytes: nil,
+			wantStarStr: starlark.String(""),
 			wantIsNull:  true,
 			wantIsEmpty: true,
 		},
 		{
 			name:        "empty string",
 			str:         NewNullableStringOrBytes(""),
-			wantStr:     "",
+			wantGoStr:   "",
+			wantGoBytes: []byte{},
+			wantStarStr: starlark.String(""),
 			wantIsNull:  false,
 			wantIsEmpty: true,
 		},
 		{
 			name:        "non-empty string",
 			str:         NewNullableStringOrBytes("hello"),
-			wantStr:     "hello",
+			wantGoStr:   "hello",
+			wantGoBytes: []byte("hello"),
+			wantStarStr: starlark.String("hello"),
 			wantIsNull:  false,
 			wantIsEmpty: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotStr := tt.str.GoString(); gotStr != tt.wantStr {
-				t.Errorf("NullableStringOrBytes.GoString() = %v, want %v", gotStr, tt.wantStr)
+			if gotStr := tt.str.GoString(); gotStr != tt.wantGoStr {
+				t.Errorf("NullableStringOrBytes.GoString() = %v, want %v", gotStr, tt.wantGoStr)
+			}
+			if gotBytes := tt.str.GoBytes(); !reflect.DeepEqual(gotBytes, tt.wantGoBytes) {
+				t.Errorf("NullableStringOrBytes.GoBytes() = %v, want %v", gotBytes, tt.wantGoBytes)
+			}
+			if gotStr := tt.str.StarlarkString(); gotStr != tt.wantStarStr {
+				t.Errorf("NullableStringOrBytes.StarlarkString() = %v, want %v", gotStr, tt.wantStarStr)
+			}
+			if gotStr := tt.str.StarlarkBytes(); gotStr != starlark.Bytes(tt.wantStarStr) {
+				t.Errorf("NullableStringOrBytes.StarlarkBytes() = %v, want %v", gotStr, starlark.Bytes(tt.wantStarStr))
 			}
 			if gotIsNull := tt.str.IsNull(); gotIsNull != tt.wantIsNull {
 				t.Errorf("NullableStringOrBytes.IsNull() = %v, want %v", gotIsNull, tt.wantIsNull)
