@@ -27,7 +27,11 @@ func (p *Nullable[T]) Unpack(v starlark.Value) error {
 	} else if t, ok := v.(T); ok {
 		p.value = &t
 	} else {
-		return fmt.Errorf("got %s, want %s or None", v.Type(), p.defaultValue.Type())
+		gt := "nil"
+		if v != nil {
+			gt = v.Type()
+		}
+		return fmt.Errorf("expected %T or None, got %s", p.defaultValue, gt)
 	}
 	return nil
 }
