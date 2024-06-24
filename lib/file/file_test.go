@@ -136,6 +136,76 @@ func TestLoadModule_File(t *testing.T) {
 			`),
 		},
 		{
+			name: `read json no args`,
+			script: itn.HereDoc(`
+				load('file', 'read_json')
+				j1 = read_json()
+			`),
+			wantErr: `file.read_json: missing argument for name`,
+		},
+		{
+			name: `read json not found`,
+			script: itn.HereDoc(`
+				load('file', 'read_json')
+				j1 = read_json("no-such-file")
+			`),
+			wantErr: `open no-such-file`,
+		},
+		{
+			name: `read broken json`,
+			script: itn.HereDoc(`
+				load('file', 'read_json')
+				j1 = read_json('testdata/1line.txt')
+			`),
+			wantErr: `json.decode: at offset`,
+		},
+		{
+			name: `read json`,
+			script: itn.HereDoc(`
+				load('file', 'read_json')
+				j1 = read_json('testdata/json1.json')
+				assert.true(type(j1) == "dict")
+				assert.eq(j1["num"], 42)
+				assert.eq(j1["undef"], None)
+				assert.eq(j1["bool"], True)
+				assert.eq(j1["arr"], [1,2,3])
+				assert.eq(j1["obj"], {"foo": "bar", "baz": "qux"})
+			`),
+		},
+		{
+			name: `read jsonl no args`,
+			script: itn.HereDoc(`
+				load('file', 'read_jsonl')
+				j1 = read_jsonl()
+			`),
+			wantErr: `file.read_jsonl: missing argument for name`,
+		},
+		{
+			name: `read jsonl not found`,
+			script: itn.HereDoc(`
+				load('file', 'read_jsonl')
+				j1 = read_jsonl("no-such-file")
+			`),
+			wantErr: `open no-such-file`,
+		},
+		{
+			name: `read broken jsonl`,
+			script: itn.HereDoc(`
+				load('file', 'read_jsonl')
+				j1 = read_jsonl('testdata/1line.txt')
+			`),
+			wantErr: `line 1: json.decode: at offset`,
+		},
+		{
+			name: `read jsonl`,
+			script: itn.HereDoc(`
+				load('file', 'read_jsonl')
+				js = read_jsonl('testdata/json2.json')
+				assert.eq(len(js), 3)
+				assert.eq(js[-1], {"name": "Mike", "age": 32, "city": "Chicago", "opt": True})
+			`),
+		},
+		{
 			name: `write no args`,
 			script: itn.HereDoc(`
 				load('file', 'write_bytes')
@@ -259,6 +329,116 @@ func TestLoadModule_File(t *testing.T) {
 			fileContent: "Hello\nworld\n123\n[True, False]\n",
 		},
 		{
+			name: `write json no args`,
+			script: itn.HereDoc(`
+				load('file', 'write_json')
+				write_json()
+			`),
+			wantErr: `file.write_json: missing argument for name`,
+		},
+		{
+			name: `write json no data`,
+			script: itn.HereDoc(`
+				load('file', 'write_json')
+				fp = %q
+				write_json(fp)
+			`),
+			wantErr: `file.write_json: missing argument for data`,
+		},
+		{
+			name: `write json invalid data`,
+			script: itn.HereDoc(`
+				load('file', 'write_json')
+				fp = %q
+				write_json(fp, lambda x: x*2)
+			`),
+			wantErr: `json.encode: cannot encode function as JSON`,
+		},
+		{
+			name: `write json string`,
+			script: itn.HereDoc(`
+				load('file', 'write_json')
+				fp = %q
+				write_json(fp, "abc")
+			`),
+			fileContent: `abc`,
+		},
+		{
+			name: `write json bytes`,
+			script: itn.HereDoc(`
+				load('file', 'write_json')
+				fp = %q
+				write_json(fp, b"123")
+			`),
+			fileContent: `123`,
+		},
+		{
+			name: `write json dict`,
+			script: itn.HereDoc(`
+				load('file', 'write_json')
+				fp = %q
+				write_json(fp, {"b": True})
+				write_json(fp, {"a": 520})
+			`),
+			fileContent: `{"a":520}`,
+		},
+		{
+			name: `append json no args`,
+			script: itn.HereDoc(`
+				load('file', 'append_json')
+				append_json()
+			`),
+			wantErr: `file.append_json: missing argument for name`,
+		},
+		{
+			name: `append json no data`,
+			script: itn.HereDoc(`
+				load('file', 'append_json')
+				fp = %q
+				append_json(fp)
+			`),
+			wantErr: `file.append_json: missing argument for data`,
+		},
+		{
+			name: `append json invalid data`,
+			script: itn.HereDoc(`
+				load('file', 'append_json')
+				fp = %q
+				append_json(fp, lambda x: x*2)
+			`),
+			wantErr: `json.encode: cannot encode function as JSON`,
+		},
+		{
+			name: `append json string`,
+			script: itn.HereDoc(`
+				load('file', 'append_json')
+				fp = %q
+				append_json(fp, "abc")
+				append_json(fp, "ABC")
+			`),
+			fileContent: `abcABC`,
+		},
+		{
+			name: `append json bytes`,
+			script: itn.HereDoc(`
+				load('file', 'append_json')
+				fp = %q
+				append_json(fp, b"123")
+				append_json(fp, b"456")
+			`),
+			fileContent: `123456`,
+		},
+		{
+			name: `append json dict`,
+			script: itn.HereDoc(`
+				load('file', 'append_json')
+				fp = %q
+				append_json(fp, {"a": 520})
+				append_json(fp, {"b": 1==1})
+			`),
+			fileContent: `{"a":520}{"b":true}`,
+		},
+		{
 			name: `append bytes`,
 			script: itn.HereDoc(`
 				load('file', 'append_bytes')
@@ -288,6 +468,173 @@ func TestLoadModule_File(t *testing.T) {
 				append_lines(fp, ["Bye"])
 			`),
 			fileContent: "Hello\nWorld\nGreat\nJob\nBye\n",
+		},
+		{
+			name: `write jsonl no args`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				write_jsonl()
+			`),
+			wantErr: `file.write_jsonl: missing argument for name`,
+		},
+		{
+			name: `write jsonl no data`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				write_jsonl(fp)
+			`),
+			wantErr: `file.write_jsonl: missing argument for data`,
+		},
+		{
+			name: `write jsonl invalid data`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				write_jsonl(fp, lambda x: x*2)
+			`),
+			wantErr: `json.encode: cannot encode function as JSON`,
+		},
+		{
+			name: `write jsonl string`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				write_jsonl(fp, "abc")
+			`),
+			fileContent: "abc\n",
+		},
+		{
+			name: `write jsonl bytes`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				write_jsonl(fp, b"123")
+			`),
+			fileContent: "123\n",
+		},
+		{
+			name: `write jsonl dict`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				write_jsonl(fp, {"b": True})
+				write_jsonl(fp, {"a": 520})
+			`),
+			fileContent: "{\"a\":520}\n",
+		},
+		{
+			name: `write jsonl list`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				l = [{"a": 520}, {"b": True}]
+				write_jsonl(fp, l)
+			`),
+			fileContent: "{\"a\":520}\n{\"b\":true}\n",
+		},
+		{
+			name: `write jsonl tuple`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				l = ({"a": 520}, {"b": True}, {"c": "hello"})
+				write_jsonl(fp, l)
+			`),
+			fileContent: "{\"a\":520}\n{\"b\":true}\n{\"c\":\"hello\"}\n",
+		},
+		{
+			name: `write jsonl set`,
+			script: itn.HereDoc(`
+				load('file', 'write_jsonl')
+				fp = %q
+				write_jsonl(fp, set({"a": 520}))
+			`),
+			fileContent: "\"a\"\n",
+		},
+		{
+			name: `append jsonl no args`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				append_jsonl()
+			`),
+			wantErr: `file.append_jsonl: missing argument for name`,
+		},
+		{
+			name: `append jsonl no data`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				append_jsonl(fp)
+			`),
+			wantErr: `file.append_jsonl: missing argument for data`,
+		},
+		{
+			name: `append jsonl invalid data`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				append_jsonl(fp, [lambda x: x*2])
+			`),
+			wantErr: `json.encode: cannot encode function as JSON`,
+		},
+		{
+			name: `append jsonl string`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				append_jsonl(fp, "abc")
+			`),
+			fileContent: "abc\n",
+		},
+		{
+			name: `append jsonl bytes`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				append_jsonl(fp, b"123")
+			`),
+			fileContent: "123\n",
+		},
+		{
+			name: `append jsonl dict`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				append_jsonl(fp, {"b": True})
+				append_jsonl(fp, {"a": 520})
+			`),
+			fileContent: "{\"b\":true}\n{\"a\":520}\n",
+		},
+		{
+			name: `append jsonl list`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				l = [{"a": 520}, {"b": True}]
+				append_jsonl(fp, l)
+			`),
+			fileContent: "{\"a\":520}\n{\"b\":true}\n",
+		},
+		{
+			name: `append jsonl tuple`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				l = ({"a": 520}, {"b": True}, {"c": "hello"})
+				append_jsonl(fp, l)
+			`),
+			fileContent: "{\"a\":520}\n{\"b\":true}\n{\"c\":\"hello\"}\n",
+		},
+		{
+			name: `append jsonl set`,
+			script: itn.HereDoc(`
+				load('file', 'append_jsonl')
+				fp = %q
+				append_jsonl(fp, set({"a": 520}))
+				append_jsonl(fp, set({"c": 800}))
+			`),
+			fileContent: "\"a\"\n\"c\"\n",
 		},
 		{
 			name: `count lines: no args`,
