@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/1set/starlight/convert"
+	stdjson "go.starlark.net/lib/json"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
 
 var (
-	emptyStr      string
-	noopPrintFunc = func(thread *starlark.Thread, msg string) {}
+	emptyStr       string
+	noopPrintFunc  = func(thread *starlark.Thread, msg string) {}
+	starJSONEncode = stdjson.Module.Members["encode"].(*starlark.Builtin)
+	starJSONDecode = stdjson.Module.Members["decode"].(*starlark.Builtin)
 )
 
 // IsEmptyString checks is a starlark string is empty ("" for a go string)
@@ -42,7 +45,9 @@ func IsInterfaceNil(i interface{}) bool {
 }
 
 // MarshalStarlarkJSON marshals a starlark.Value into a JSON string.
-// It first converts the starlark.Value into a Golang value, then marshals it into JSON.
+// It first converts the starlark.Value into a Go value using the Unmarshal function,
+// then marshals the Go value into a JSON string.
+// It handles Go-specific types (supports more types like Go slices, maps, structs, interfaces, time) better than EncodeStarlarkJSON but may be slower due to intermediate conversion.
 func MarshalStarlarkJSON(data starlark.Value, indent int) (string, error) {
 	// convert starlark value to a go value
 	v, err := Unmarshal(data)
@@ -74,8 +79,11 @@ func MarshalStarlarkJSON(data starlark.Value, indent int) (string, error) {
 	return strings.TrimSpace(bf.String()), nil
 }
 
-// UnmarshalStarlarkJSON unmarshals a JSON bytes into a starlark.Value.
-// It first unmarshals the JSON string into a Gol value, then converts it into a starlark.Value.
+// UnmarshalStarlarkJSON unmarshals JSON bytes into a starlark.Value.
+// It first unmarshals the JSON bytes into a Go value using the standard JSON Unmarshal function,
+// then converts the Go value into a starlark.Value using the Marshal function.
+// Time strings are parsed as starlark Time objects.
+// In comparison with DecodeStarlarkJSON, it gives you more control over type conversion but may be less efficient due to intermediate steps.
 func UnmarshalStarlarkJSON(data []byte) (starlark.Value, error) {
 	var m interface{}
 	err := json.Unmarshal(data, &m)
@@ -88,6 +96,29 @@ func UnmarshalStarlarkJSON(data []byte) (starlark.Value, error) {
 
 	// convert go value to a starlark value
 	return Marshal(f)
+}
+
+// EncodeStarlarkJSON encodes a starlark.Value into a JSON string using the official JSON module of Starlark Go.
+// It retrieves the "json.encode" function from the Starlark standard library and calls it to perform the encoding.
+// It's less flexible but more straightforward for pure Starlark values.
+// Compared to the Marshal/Unmarshal* pair, which is more feature-rich and flexible, the Encode/Decode* pair is more focused on core Starlark types.
+func EncodeStarlarkJSON(v starlark.Value) (string, error) {
+	// convert to JSON
+	v, err := starlark.Call(&starlark.Thread{Name: "dataconv", Print: noopPrintFunc}, starJSONEncode, starlark.Tuple{v}, nil)
+	if err != nil {
+		return emptyStr, err
+	}
+
+	// convert to string
+	return StarString(v), nil
+}
+
+// DecodeStarlarkJSON decodes JSON bytes into a starlark.Value using the official JSON module of Starlark Go.
+// It retrieves the "json.decode" function from the Starlark standard library and calls it to perform the decoding.
+// It handles certain Starlark-specific structures better but less control over Go-specific types.
+// Compared to the Marshal/Unmarshal* pair, which is more feature-rich and flexible, the Encode/Decode* pair is more focused on core Starlark types.
+func DecodeStarlarkJSON(data []byte) (starlark.Value, error) {
+	return starlark.Call(&starlark.Thread{Name: "dataconv", Print: noopPrintFunc}, starJSONDecode, starlark.Tuple{starlark.String(data)}, nil)
 }
 
 // ConvertStruct converts a struct to a Starlark wrapper.
