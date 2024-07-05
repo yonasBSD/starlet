@@ -14,3 +14,6 @@ var (
 	// HereDocf returns unindented and formatted string as here-document. Formatting is done as for fmt.Printf().
 	HereDocf = here.Docf
 )
+
+// DoNotCompare prevents struct comparisons when embedded. It disallows the use of == and != operators.
+type DoNotCompare [0]func()
