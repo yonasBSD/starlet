@@ -427,6 +427,77 @@ print(sd)
 # Output: custom_dict({"key1": "value1", "key2": "value2"})
 ```
 
+### `to_dict(v)`
+
+Converts various Starlark values into a Starlark dictionary. Works with native Starlark dict, module, struct, and GoStruct, SharedDict.
+For GoStruct, it serializes the underlying Go struct to JSON and then deserializes it to a Starlark dict.
+
+#### Parameters
+
+| name | type  | description                                  |
+|------|-------|----------------------------------------------|
+| `v`  | `any` | The value to be converted into a dictionary. |
+
+#### Examples
+
+**Module to Dict**
+
+Convert a Starlark module to a dict.
+
+```python
+load("go_idiomatic", "to_dict")
+m = module("example", a=1, b=2)
+print(to_dict(m))
+# Output: {"a": 1, "b": 2}
+```
+
+**Struct to Dict**
+
+Convert a custom Starlark struct to a dict.
+
+```python
+load("go_idiomatic", "to_dict")
+person = struct(name="Alice", age=30)
+print(to_dict(person))
+# Output: {"age": 30, "name": "Alice"}
+```
+
+**GoStruct to Dict**
+
+Convert a GoStruct to a dict.
+
+```python
+load("go_idiomatic", "to_dict")
+gs.Name = "Bob"
+gs.Age = 25
+print(to_dict(gs))
+# Output: {"age": 25, "name": "Bob"}
+```
+
+**SharedDict to Dict**
+
+Convert a SharedDict to a dict.
+
+```python
+load("go_idiomatic", "shared_dict", "to_dict")
+sd = shared_dict()
+sd["key"] = "value"
+print(to_dict(sd))
+# Output: {"key": "value"}
+```
+
+**Dict to Dict**
+
+Clone an existing Starlark dict.
+
+```python
+load("go_idiomatic", "to_dict")
+original_dict = {"a": 1, "b": 2}
+cloned_dict = to_dict(original_dict)
+print(cloned_dict)
+# Output: {"a": 1, "b": 2}
+```
+
 ### `eprint(*args, sep=" ")`
 
 Works like the standard `print()` function but prints the given arguments to `stderr` instead of `Print` handler defined in Go.
