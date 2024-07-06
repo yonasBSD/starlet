@@ -2,6 +2,7 @@
 package goidiomatic
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ func LoadModule() (starlark.StringDict, error) {
 		"make_struct":      starlark.NewBuiltin("make_struct", makeCustomStruct),
 		"shared_dict":      starlark.NewBuiltin("shared_dict", makeSharedDict),
 		"make_shared_dict": starlark.NewBuiltin("make_shared_dict", makeCustomSharedDict),
+		"to_dict":          starlark.NewBuiltin("to_dict", convertToDict),
 		"distinct":         starlark.NewBuiltin("distinct", distinct),
 		"eprint":           starlark.NewBuiltin("eprint", stderrPrint),
 		"pprint":           starlark.NewBuiltin("pprint", prettyPrint),
@@ -383,4 +385,45 @@ func prettyPrint(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 		fmt.Fprintln(os.Stderr, s)
 	}
 	return starlark.None, nil
+}
+
+// convertToDict creates a Starlark dict from a Starlark dict, module, struct, GoStruct, or SharedDict.
+// It works as a complement to the builtin dict() function of Starlark, not a replacement or alternative.
+// For GoStruct, it converts the underlying Go struct to JSON string using Go standard JSON encoder, and then decodes it to a Starlark dict with Starlark JSON decoder.
+// Errors are returned if the conversion fails.
+func convertToDict(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var v starlark.Value
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "v", &v); err != nil {
+		return nil, err
+	}
+	// convert to dict
+	switch t := v.(type) {
+	case *starlarkstruct.Module:
+		dt := starlark.NewDict(len(t.Members))
+		for k, v := range t.Members {
+			_ = dt.SetKey(starlark.String(k), v)
+		}
+		return dt, nil
+	case *starlarkstruct.Struct:
+		sd := starlark.StringDict{}
+		t.ToStringDict(sd)
+		dt := starlark.NewDict(len(sd))
+		for k, v := range sd {
+			_ = dt.SetKey(starlark.String(k), v)
+		}
+		return dt, nil
+	case *convert.GoStruct:
+		rv := t.Value().Interface()
+		bs, err := json.Marshal(rv)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", b.Name(), err)
+		}
+		return dataconv.DecodeStarlarkJSON(bs)
+	case *dataconv.SharedDict:
+		return t.CloneDict()
+	case *starlark.Dict:
+		return dataconv.CloneDict(t)
+	default:
+		return nil, fmt.Errorf("%s: unsupported type: %T", b.Name(), t)
+	}
 }
