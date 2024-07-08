@@ -26,7 +26,7 @@ func NewOneOrManyNoDefault[T starlark.Value]() *OneOrMany[T] {
 // Unpack implements the starlark.Unpacker interface, allowing the struct to unpack from a starlark.Value.
 func (o *OneOrMany[T]) Unpack(v starlark.Value) error {
 	if o == nil {
-		return fmt.Errorf("nil receiver")
+		return errNilReceiver
 	}
 	if _, ok := v.(starlark.NoneType); ok {
 		// None
@@ -45,16 +45,12 @@ func (o *OneOrMany[T]) Unpack(v starlark.Value) error {
 			if t, ok := x.(T); ok {
 				sl = append(sl, t)
 			} else {
-				gt := "nil"
-				if x != nil {
-					gt = x.Type()
-				}
-				return fmt.Errorf("expected %T, got %s", o.defaultValue, gt)
+				return fmt.Errorf("expected %T, got %s", o.defaultValue, gotStarType(x))
 			}
 		}
 		o.values = sl
 	} else {
-		return fmt.Errorf("expected %T or Iterable or None, got %s", o.defaultValue, v.Type())
+		return fmt.Errorf("expected %T or Iterable or None, got %s", o.defaultValue, gotStarType(v))
 	}
 	return nil
 }
