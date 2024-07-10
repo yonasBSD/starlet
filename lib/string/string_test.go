@@ -212,6 +212,214 @@ func TestLoadModule_String(t *testing.T) {
 				print("{"+unquote('\\n1')+"}")
 			`),
 		},
+		{
+			name: `index`,
+			script: itn.HereDoc(`
+				load('string', 'index')
+				assert.eq(index('hello', 'e'), 1)
+				assert.eq(index('hello', 'o'), 4)
+				assert.eq(index('你好世界', '好'), 1)
+				assert.eq(index('你好世界', '界'), 3)
+				assert.eq(index('a☕c', '☕'), 1)
+			`),
+		},
+		{
+			name: `index not found`,
+			script: itn.HereDoc(`
+				load('string', 'index')
+				index('hello', 'x')
+			`),
+			wantErr: `substring not found`,
+		},
+		{
+			name: `index with missing args`,
+			script: itn.HereDoc(`
+				load('string', 'index')
+				index('hello')
+			`),
+			wantErr: `index: missing argument for sub`,
+		},
+		{
+			name: `index with invalid args`,
+			script: itn.HereDoc(`
+				load('string', 'index')
+				index(123, 'hello')
+			`),
+			wantErr: `index: for parameter s: got int, want string`,
+		},
+		{
+			name: `rindex`,
+			script: itn.HereDoc(`
+				load('string', 'rindex')
+				assert.eq(rindex('hello hello', 'e'), 7)
+				assert.eq(rindex('hello hello', 'o'), 10)
+				assert.eq(rindex('你好世界你好', '好'), 5)
+				assert.eq(rindex('你好世界你好', '界'), 3)
+				assert.eq(rindex('a☕c☕a', '☕'), 3)
+			`),
+		},
+		{
+			name: `rindex not found`,
+			script: itn.HereDoc(`
+				load('string', 'rindex')
+				rindex('hello', 'x')
+			`),
+			wantErr: `substring not found`,
+		},
+		{
+			name: `rindex with missing args`,
+			script: itn.HereDoc(`
+				load('string', 'rindex')
+				rindex('hello')
+			`),
+			wantErr: `rindex: missing argument for sub`,
+		},
+		{
+			name: `rindex with invalid args`,
+			script: itn.HereDoc(`
+				load('string', 'rindex')
+				rindex(123, 'hello')
+			`),
+			wantErr: `rindex: for parameter s: got int, want string`,
+		},
+		{
+			name: `find`,
+			script: itn.HereDoc(`
+				load('string', 'find')
+				assert.eq(find('hello', 'e'), 1)
+				assert.eq(find('hello', 'o'), 4)
+				assert.eq(find('hello', 'x'), -1)
+				assert.eq(find('你好世界', '好'), 1)
+				assert.eq(find('你好世界', '界'), 3)
+				assert.eq(find('你好世界', 'b'), -1)
+				assert.eq(find('a☕c', '☕'), 1)
+			`),
+		},
+		{
+			name: `find with missing args`,
+			script: itn.HereDoc(`
+				load('string', 'find')
+				find('hello')
+			`),
+			wantErr: `find: missing argument for sub`,
+		},
+		{
+			name: `find with invalid args`,
+			script: itn.HereDoc(`
+				load('string', 'find')
+				find(123, 'hello')
+			`),
+			wantErr: `find: for parameter s: got int, want string`,
+		},
+		{
+			name: `rfind`,
+			script: itn.HereDoc(`
+				load('string', 'rfind')
+				assert.eq(rfind('hello hello', 'e'), 7)
+				assert.eq(rfind('hello hello', 'o'), 10)
+				assert.eq(rfind('hello', 'x'), -1)
+				assert.eq(rfind('你好世界你好', '好'), 5)
+				assert.eq(rfind('你好世界你好', '界'), 3)
+				assert.eq(rfind('你好世界', 'b'), -1)
+				assert.eq(rfind('a☕c☕a', '☕'), 3)
+			`),
+		},
+		{
+			name: `rfind with missing args`,
+			script: itn.HereDoc(`
+				load('string', 'rfind')
+				rfind('hello')
+			`),
+			wantErr: `rfind: missing argument for sub`,
+		},
+		{
+			name: `rfind with invalid args`,
+			script: itn.HereDoc(`
+				load('string', 'rfind')
+				rfind(123, 'hello')
+			`),
+			wantErr: `rfind: for parameter s: got int, want string`,
+		},
+		{
+			name: `substring`,
+			script: itn.HereDoc(`
+				load('string', 'substring')
+				assert.eq(substring('hello', 1, 4), 'ell')
+				assert.eq(substring('hello', 1, -1), 'ell')
+				assert.eq(substring('你好世界', 1, 3), '好世')
+				assert.eq(substring('你好世界', 2, -1), '世')
+				assert.eq(substring('a☕c', 1, 2), '☕')
+				assert.eq(substring('a☕c', -2, -1), '☕')
+			`),
+		},
+		{
+			name: `substring with missing end`,
+			script: itn.HereDoc(`
+				load('string', 'substring')
+				x = substring('hello', 1)
+				assert.eq(x, 'ello')
+			`),
+		},
+		{
+			name: `substring with invalid args`,
+			script: itn.HereDoc(`
+				load('string', 'substring')
+				substring(123, 1, 4)
+			`),
+			wantErr: `substring: for parameter s: got int, want string`,
+		},
+		{
+			name: `substring with out of range args`,
+			script: itn.HereDoc(`
+				load('string', 'substring')
+				substring('hello', 1, 6)
+			`),
+			wantErr: `substring: indices are out of range`,
+		},
+		{
+			name: `substring with start greater than end`,
+			script: itn.HereDoc(`
+				load('string', 'substring')
+				substring('hello', 3, 1)
+			`),
+			wantErr: `substring: indices are out of range`,
+		},
+		{
+			name: `codepoint`,
+			script: itn.HereDoc(`
+				load('string', 'codepoint')
+				assert.eq(codepoint('hello', 1), "e")
+				assert.eq(codepoint('你好世界', 0), "你")
+				assert.eq(codepoint('你好世界', 1), "好")
+				assert.eq(codepoint('a☕c', 0), "a")
+				assert.eq(codepoint('a☕c', 1), "☕")
+				assert.eq(codepoint('a☕c', -1), "c")
+			`),
+		},
+		{
+			name: `codepoint with missing args`,
+			script: itn.HereDoc(`
+				load('string', 'codepoint')
+				codepoint('hello')
+			`),
+			wantErr: `codepoint: missing argument for index`,
+		},
+		{
+			name: `codepoint with invalid args`,
+			script: itn.HereDoc(`
+				load('string', 'codepoint')
+				codepoint(123, 1)
+			`),
+			wantErr: `codepoint: for parameter s: got int, want string`,
+		},
+		{
+			name: `codepoint with out of range index`,
+			script: itn.HereDoc(`
+				load('string', 'codepoint')
+				codepoint('hello', 5)
+			`),
+			wantErr: `codepoint: index out of range`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
