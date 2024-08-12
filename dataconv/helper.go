@@ -218,8 +218,11 @@ func TypeConvert(data interface{}) interface{} {
 	}
 }
 
-// StarString returns the string representation of a starlark.Value.
+// StarString returns the string representation of a starlark.Value, i.e. converts Starlark values to Go strings.
 func StarString(x starlark.Value) string {
+	if IsInterfaceNil(x) {
+		return emptyStr
+	}
 	switch v := x.(type) {
 	case starlark.String:
 		return v.GoString()
@@ -228,6 +231,20 @@ func StarString(x starlark.Value) string {
 	default:
 		return v.String()
 	}
+}
+
+// GoToStarlarkViaJSON converts any Go value that can be marshaled into JSON into a corresponding Starlark value.
+// It first marshals the Go value into a JSON string with the standard Go JSON package,
+// then decodes this JSON string into a Starlark value with the official Starlark JSON module.
+func GoToStarlarkViaJSON(v interface{}) (starlark.Value, error) {
+	if v == nil {
+		return starlark.None, nil
+	}
+	bs, err := json.Marshal(v)
+	if err != nil {
+		return starlark.None, err
+	}
+	return DecodeStarlarkJSON(bs)
 }
 
 // GetThreadContext returns the context of the given thread, or new context if not found.
