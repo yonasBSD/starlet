@@ -4,9 +4,14 @@ package json
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
 	"sync"
 
 	itn "github.com/1set/starlet/dataconv"
+	"github.com/spyzhov/ajson"
 	stdjson "go.starlark.net/lib/json"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -33,6 +38,10 @@ func LoadModule() (starlark.StringDict, error) {
 				"try_encode": starlark.NewBuiltin(ModuleName+".try_encode", tryEncode),
 				"try_decode": starlark.NewBuiltin(ModuleName+".try_decode", tryDecode),
 				"try_indent": starlark.NewBuiltin(ModuleName+".try_indent", tryIndent),
+				"path":       starlark.NewBuiltin(ModuleName+".path", generateJsonPath(false)),
+				"try_path":   starlark.NewBuiltin(ModuleName+".try_path", generateJsonPath(true)),
+				"eval":       starlark.NewBuiltin(ModuleName+".eval", generateJsonEval(false)),
+				"try_eval":   starlark.NewBuiltin(ModuleName+".try_eval", generateJsonEval(true)),
 			},
 		}
 		for k, v := range stdjson.Module.Members {
@@ -130,4 +139,201 @@ func tryIndent(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tupl
 		return starlark.Tuple{none, starlark.String(err.Error())}, nil
 	}
 	return starlark.Tuple{starlark.String(buf.String()), none}, nil
+}
+
+// generateJsonPath generates a Starlark function that performs a JSONPath query on the given JSON data and returns the matching elements.
+func generateJsonPath(try bool) itn.StarlarkFunc {
+	return func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (res starlark.Value, err error) {
+		var (
+			data     starlark.Value
+			pathExpr string
+		)
+		if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "data", &data, "path", &pathExpr); err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, err
+		}
+
+		jb, err := getJsonBytes(data)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.path: %w", err)
+		}
+
+		nodes, err := ajson.JSONPath(jb, pathExpr)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.path: %w", err)
+		}
+
+		results, err := ajsonNodesToStarlarkList(nodes)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.path: %w", err)
+		}
+
+		if try {
+			return starlark.Tuple{results, starlark.None}, nil
+		}
+		return results, nil
+	}
+}
+
+// generateJsonEval generates a Starlark function that evaluates a JSONPath query with an expression on the given JSON data and returns the evaluation result.
+func generateJsonEval(try bool) itn.StarlarkFunc {
+	return func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (res starlark.Value, err error) {
+		var (
+			data starlark.Value
+			expr string
+		)
+		if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "data", &data, "expr", &expr); err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, err
+		}
+
+		jb, err := getJsonBytes(data)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.eval: %w", err)
+		}
+
+		root, err := ajson.Unmarshal(jb)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.eval: %w", err)
+		}
+
+		result, err := ajson.Eval(root, expr)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.eval: %w", err)
+		}
+
+		val, err := ajsonNodeToStarlarkValue(result)
+		if err != nil {
+			if try {
+				return starlark.Tuple{starlark.None, starlark.String(err.Error())}, nil
+			}
+			return none, fmt.Errorf("json.eval: %w", err)
+		}
+
+		if try {
+			return starlark.Tuple{val, starlark.None}, nil
+		}
+		return val, nil
+	}
+}
+
+// getJsonBytes converts a Starlark value to a JSON byte slice.
+func getJsonBytes(data starlark.Value) ([]byte, error) {
+	switch v := data.(type) {
+	case starlark.String:
+		return []byte(v.GoString()), nil
+	case starlark.Bytes:
+		return []byte(v), nil
+	default:
+		js, err := itn.MarshalStarlarkJSON(data, 0)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(js), nil
+	}
+}
+
+// ajsonNodesToStarlarkList converts a slice of ajson.Node to a Starlark list.
+func ajsonNodesToStarlarkList(nodes []*ajson.Node) (starlark.Value, error) {
+	results := make([]starlark.Value, 0, len(nodes))
+	for _, node := range nodes {
+		val, err := ajsonNodeToStarlarkValue(node)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, val)
+	}
+	return starlark.NewList(results), nil
+}
+
+// ajsonNodeToStarlarkValue converts an ajson.Node to a Starlark value.
+// It recursively traverses the node tree and constructs the corresponding Starlark values.
+func ajsonNodeToStarlarkValue(node *ajson.Node) (starlark.Value, error) {
+	switch node.Type() {
+	case ajson.Object:
+		dict := &starlark.Dict{}
+		for _, key := range node.Keys() {
+			valNode, err := node.GetKey(key)
+			if err != nil {
+				return nil, err
+			}
+			val, err := ajsonNodeToStarlarkValue(valNode)
+			if err != nil {
+				return nil, err
+			}
+			err = dict.SetKey(starlark.String(key), val)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return dict, nil
+	case ajson.Array:
+		// Use keys and indices to avoid relying on invalid index pointers
+		keys := node.Keys()
+		if len(keys) == 0 {
+			return starlark.NewList(nil), nil
+		}
+		indices := make([]int, len(keys))
+		indexMap := make(map[int]*ajson.Node)
+		for i, key := range keys {
+			idx, err := strconv.Atoi(key)
+			if err != nil {
+				return nil, fmt.Errorf("invalid array index: %v", err)
+			}
+			indices[i] = idx
+			child, err := node.GetIndex(idx)
+			if err != nil {
+				return nil, err
+			}
+			indexMap[idx] = child
+		}
+		sort.Ints(indices)
+		vals := make([]starlark.Value, len(indices))
+		for i, idx := range indices {
+			elem := indexMap[idx]
+			val, err := ajsonNodeToStarlarkValue(elem)
+			if err != nil {
+				return nil, err
+			}
+			vals[i] = val
+		}
+		return starlark.NewList(vals), nil
+	case ajson.String:
+		return starlark.String(node.MustString()), nil
+	case ajson.Numeric:
+		num := node.MustNumeric()
+		if math.Mod(num, 1.0) == 0 {
+			return starlark.MakeInt64(int64(num)), nil
+		} else {
+			return starlark.Float(num), nil
+		}
+	case ajson.Bool:
+		return starlark.Bool(node.MustBool()), nil
+	case ajson.Null:
+		return starlark.None, nil
+	default:
+		return nil, fmt.Errorf("unsupported JSON node type: %v", node.Type())
+	}
 }
