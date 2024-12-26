@@ -701,6 +701,44 @@ x = fib(10)
 	expectErr(t, err, `starlark: exec: function fib called recursively`)
 }
 
+func Test_Machine_Run_RecursionLoad(t *testing.T) {
+	code := `
+load("fibonacci2.star", "fib")
+x = fib(10)
+`
+	{
+		// create machine
+		m := starlet.NewDefault()
+		// set code
+		m.SetScript("ans.star", []byte(code), os.DirFS("testdata"))
+		// run
+		_, err := m.Run()
+		if err == nil {
+			t.Errorf("expected error, got nil")
+			return
+		}
+	}
+
+	{
+		// create machine
+		m := starlet.NewDefault()
+		m.EnableRecursionSupport()
+		// set code
+		m.SetScript("ans.star", []byte(code), os.DirFS("testdata"))
+		// run
+		out, err := m.Run()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		// check result
+		if out == nil {
+			t.Errorf("unexpected nil output")
+		} else if out["x"] != int64(55) {
+			t.Errorf("unexpected output: %v", out)
+		}
+	}
+}
+
 func Test_Machine_Run_LoadErrors(t *testing.T) {
 	mm := starlark.NewDict(1)
 	_ = mm.SetKey(starlark.String("quarter"), starlark.MakeInt(100))

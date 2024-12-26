@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 )
 
 // The following code is copied and modified from the starlark-go repo,
@@ -23,6 +24,7 @@ type cache struct {
 	cacheMu  sync.Mutex
 	cache    map[string]*entry
 	globals  starlark.StringDict
+	execOpts *syntax.FileOptions
 	loadMod  func(s string) (starlark.StringDict, error) // load from built-in module first
 	readFile func(s string) ([]byte, error)              // and then from file system
 }
@@ -108,7 +110,12 @@ func (c *cache) doLoad(cc *cycleChecker, module string) (starlark.StringDict, er
 	if err != nil {
 		return nil, err
 	}
-	return starlark.ExecFile(thread, module, b, c.globals)
+
+	// 3. execute the source file
+	if c.execOpts == nil {
+		return starlark.ExecFile(thread, module, b, c.globals)
+	}
+	return starlark.ExecFileOptions(c.execOpts, thread, module, b, c.globals)
 }
 
 // -- concurrent cycle checking --
